@@ -1,0 +1,34 @@
+{
+  "nodeDefs": [
+    {
+      "name": "Event.Start",
+      "title": "Event Start",
+      "category": "Event",
+      "outputs": ["exec:exec"],
+      "desc": "Blueprint execution entry."
+    },
+    {
+      "name": "Debug.Print",
+      "title": "Print",
+      "category": "Debug",
+      "inputs": ["exec:exec", "text:string"],
+      "outputs": ["exec:exec"],
+      "defaults": {
+        "text": "Hello from Blueprint sample"
+      },
+      "desc": "Print text for testing graph flow."
+    },
+    {
+      "name": "Math.AddInt",
+      "title": "Add Int",
+      "category": "Math",
+      "inputs": ["a:number", "b:number"],
+      "outputs": ["result:number"],
+      "defaults": {
+        "a": 1,
+        "b": 2
+      },
+      "desc": "Simple numeric node for type-link demo."
+    }
+  ]
+}

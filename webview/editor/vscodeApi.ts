@@ -1,0 +1,83 @@
+/**
+ * Bridge between the Editor Webview and the VSCode Extension Host.
+ * The `acquireVsCodeApi()` function is injected by VSCode into the webview context.
+ */
+import type { EditorToHostMessage, HostToEditorMessage } from "../../src/types";
+import { composeLoggers, createConsoleLogger, setLogger, type Logger } from "../shared/misc/logger";
+
+declare function acquireVsCodeApi(): {
+  postMessage(message: EditorToHostMessage): void;
+  getState(): unknown;
+  setState(state: unknown): void;
+};
+
+const vscode = acquireVsCodeApi();
+
+/** Send a message to the extension host */
+export const postMessage = (msg: EditorToHostMessage) => {
+  vscode.postMessage(msg);
+};
+
+function formatWebviewConsoleArg(a: unknown): string {
+  if (typeof a === "string") {
+    return a;
+  }
+  if (a instanceof Error) {
+    return a.stack ?? a.message;
+  }
+  try {
+    if (typeof a === "object" && a !== null) {
+      return JSON.stringify(a);
+    }
+  } catch {
+    /* ignore */
+  }
+  return String(a);
+}
+
+function createWebviewForwardLogger(post: (msg: EditorToHostMessage) => void): Logger {
+  const forward =
+    (level: "log" | "info" | "warn" | "error" | "debug") =>
+    (...args: unknown[]) => {
+      try {
+        const message = args.map(formatWebviewConsoleArg).join(" ");
+        post({ type: "webviewLog", level, message });
+      } catch {
+        /* ignore bridge errors */
+      }
+    };
+  return {
+    log: forward("log"),
+    info: forward("info"),
+    warn: forward("warn"),
+    error: forward("error"),
+    debug: forward("debug"),
+  };
+}
+
+setLogger(composeLoggers(createConsoleLogger(), createWebviewForwardLogger(postMessage)));
+
+type MessageHandler = (msg: HostToEditorMessage) => void;
+const handlers: MessageHandler[] = [];
+
+window.addEventListener("message", (event) => {
+  const msg = event.data as HostToEditorMessage;
+  for (const handler of handlers) {
+    handler(msg);
+  }
+});
+
+/** Register a handler for messages from the extension host */
+export const onMessage = (handler: MessageHandler): (() => void) => {
+  handlers.push(handler);
+  return () => {
+    const idx = handlers.indexOf(handler);
+    if (idx >= 0) {
+      handlers.splice(idx, 1);
+    }
+  };
+};
+
+/** Persist minimal UI state across webview lifecycle (when panel is hidden) */
+export const getState = () => vscode.getState() as Record<string, unknown> | null;
+export const setState = (state: Record<string, unknown>) => vscode.setState(state);

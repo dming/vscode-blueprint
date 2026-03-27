@@ -1,0 +1,230 @@
+{
+  "formatVersion": 1,
+  "graph": {
+    "id": "main",
+    "name": "BlueprintSample",
+    "nodes": [
+      {
+        "id": "start",
+        "title": "Event Start",
+        "x": 80,
+        "y": 80,
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ]
+      },
+      {
+        "id": "print_hello",
+        "title": "Print",
+        "x": 400,
+        "y": 80,
+        "inputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          },
+          {
+            "name": "text",
+            "type": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "text": "Hello Blueprint!"
+        }
+      },
+      {
+        "id": "math_add",
+        "title": "Add Int",
+        "x": 400,
+        "y": 279,
+        "inputs": [
+          {
+            "name": "a",
+            "type": "number"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "result",
+            "type": "number"
+          }
+        ],
+        "values": {
+          "a": "1",
+          "b": "2"
+        }
+      },
+      {
+        "id": "node_nuflc6",
+        "title": "Event Start",
+        "x": 80,
+        "y": 480,
+        "inputs": [
+          {
+            "name": "in",
+            "type": "exec"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ]
+      },
+      {
+        "id": "node_nvwn0z",
+        "title": "Add Int",
+        "x": 80,
+        "y": 280,
+        "inputs": [
+          {
+            "name": "a",
+            "type": "number"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "result",
+            "type": "number"
+          }
+        ],
+        "values": {
+          "a": "1",
+          "b": "2"
+        }
+      },
+      {
+        "id": "start_copy",
+        "title": "Event Start",
+        "x": 80,
+        "y": 680,
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ]
+      },
+      {
+        "id": "node_d4sy6w",
+        "title": "Print",
+        "x": 720,
+        "y": 80,
+        "inputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          },
+          {
+            "name": "text",
+            "type": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "text": "Hello from Blueprint sample"
+        }
+      },
+      {
+        "id": "node_bgihbj",
+        "title": "Print",
+        "x": 400,
+        "y": 480,
+        "inputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          },
+          {
+            "name": "text",
+            "type": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "text": "Hello from Blueprint sample"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "node_nvwn0z:result->math_add:a",
+        "fromNodeId": "node_nvwn0z",
+        "fromPin": "result",
+        "toNodeId": "math_add",
+        "toPin": "a"
+      },
+      {
+        "id": "node_nvwn0z:result->math_add:b",
+        "fromNodeId": "node_nvwn0z",
+        "fromPin": "result",
+        "toNodeId": "math_add",
+        "toPin": "b"
+      },
+      {
+        "id": "start:exec->print_hello:exec",
+        "fromNodeId": "start",
+        "fromPin": "exec",
+        "toNodeId": "print_hello",
+        "toPin": "exec"
+      },
+      {
+        "id": "print_hello:exec->node_d4sy6w:exec",
+        "fromNodeId": "print_hello",
+        "fromPin": "exec",
+        "toNodeId": "node_d4sy6w",
+        "toPin": "exec"
+      },
+      {
+        "id": "start_copy:exec->node_bgihbj:exec",
+        "fromNodeId": "start_copy",
+        "fromPin": "exec",
+        "toNodeId": "node_bgihbj",
+        "toPin": "exec"
+      }
+    ],
+    "variables": [
+      {
+        "name": "score",
+        "type": "number"
+      },
+      {
+        "name": "name",
+        "type": "string"
+      }
+    ]
+  },
+  "metadata": {
+    "sample": true
+  }
+}

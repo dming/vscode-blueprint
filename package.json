@@ -1,0 +1,143 @@
+{
+  "name": "vscode-blueprint-editor",
+  "displayName": "Blueprint Editor",
+  "description": "Visual blueprint graph editor for game workflows",
+  "version": "2.0.1-9",
+  "publisher": "dming",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhongfq/vscode-blueprint-editor"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "icon.png",
+  "activationEvents": [
+    "onLanguage:json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "blueprint.editor",
+        "displayName": "Blueprint Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.bp.json"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "blueprint.build",
+        "title": "Build Blueprint",
+        "category": "Blueprint",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "blueprint.createProject",
+        "title": "Create Blueprint Project",
+        "category": "Blueprint"
+      },
+      {
+        "command": "blueprint.openSettings",
+        "title": "Open Blueprint Config",
+        "category": "Blueprint"
+      },
+      {
+        "command": "blueprint.openWithEditor",
+        "title": "Open with Blueprint Editor",
+        "category": "Blueprint"
+      },
+      {
+        "command": "blueprint.toggleEditorMode",
+        "title": "Toggle Text / Blueprint",
+        "category": "Blueprint",
+        "icon": "$(edit)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "blueprint.build",
+        "key": "ctrl+b",
+        "mac": "cmd+b",
+        "when": "activeCustomEditorId == 'blueprint.editor'"
+      },
+      {
+        "command": "blueprint.toggleEditorMode",
+        "key": "f4",
+        "when": "activeCustomEditorId == 'blueprint.editor' || resourceFilename =~ /.*\\.bp\\.json$/"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "blueprint.toggleEditorMode",
+          "when": "activeCustomEditorId == 'blueprint.editor' || resourceFilename =~ /.*\\.bp\\.json$/",
+          "group": "navigation@0"
+        },
+        {
+          "command": "blueprint.build",
+          "when": "activeCustomEditorId == 'blueprint.editor'",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "blueprint.openWithEditor",
+          "when": "resourceFilename =~ /.*\\.bp\\.json$/ && !explorerResourceIsFolder",
+          "group": "navigation@45"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Blueprint Editor",
+      "properties": {
+        "blueprint.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open *.bp.json files with the Blueprint editor."
+        },
+        "blueprint.nodeDefFile": {
+          "type": "string",
+          "default": "blueprint.config.json",
+          "description": "Path (relative to workspace root) to the blueprint node definition file."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js && vite build",
+    "build:dev": "node esbuild.js --dev && vite build --mode development",
+    "watch:ext": "node esbuild.js --watch",
+    "watch:webview": "vite build --watch --mode development",
+    "dev": "npm run watch:webview",
+    "package": "vsce package",
+    "postinstall": "echo postinstall complete"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/vscode": "^1.85.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.24.0",
+    "prettier": "^3.8.1",
+    "sass": "^1.77.8",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "antd": "^6.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.8.2"
+  }
+}
