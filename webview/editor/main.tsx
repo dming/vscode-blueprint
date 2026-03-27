@@ -1,4 +1,4 @@
-import { App, Button, Card, Divider, Form, Input, Select, Space, Tag, Typography } from "antd";
+import { App, Button, Card, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import * as vscodeApi from "./vscodeApi";
@@ -8,6 +8,8 @@ type Pin = { name: string; type: string };
 type BlueprintNode = {
   id: string;
   title: string;
+  description?: string;
+  isRoot?: boolean;
   x: number;
   y: number;
   inputs: Pin[];
@@ -59,6 +61,7 @@ const createDefaultDocument = (): BlueprintDocument => ({
       {
         id: "start",
         title: "Start",
+        isRoot: true,
         x: 120,
         y: 120,
         inputs: [],
@@ -377,6 +380,7 @@ const EditorApp = () => {
   const [buildIssues, setBuildIssues] = useState<BuildIssue[]>([]);
   const [nodeDefs, setNodeDefs] = useState<NodeDef[]>([]);
   const [activeNodeDef, setActiveNodeDef] = useState<string>("");
+  const [findNodeId, setFindNodeId] = useState<string>("");
   const [extensionVersion, setExtensionVersion] = useState<string>("");
   const [focusedEdgeId, setFocusedEdgeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -389,13 +393,18 @@ const EditorApp = () => {
     null
   );
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
-  const [form] = Form.useForm<{ title: string; inputs: string; outputs: string }>();
+  const [nodeContextMenu, setNodeContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const [form] = Form.useForm<{ description: string }>();
   const [historyState, setHistoryState] = useState({ index: -1, length: 0 });
   const [collapsedSections, setCollapsedSections] = useState({
     node: false,
     edit: false,
     layout: false,
     canvasBuild: false,
+  });
+  const [collapsedInspectorPins, setCollapsedInspectorPins] = useState({
+    inputs: false,
+    outputs: false,
   });
   const clearFocusTimerRef = useRef<number | null>(null);
   const invalidPinTimerRef = useRef<number | null>(null);
@@ -417,12 +426,11 @@ const EditorApp = () => {
   const dragActiveRef = useRef(false);
   const updateFlushTimerRef = useRef<number | null>(null);
   const inspectorFormRef = useRef<HTMLDivElement | null>(null);
+  const nodeFinderRef = useRef<{ focus?: () => void } | null>(null);
   const inspectorEditingRef = useRef(false);
   const inspectorFormSyncRef = useRef<{
     id: string;
-    title: string;
-    inputsText: string;
-    outputsText: string;
+    description: string;
   } | null>(null);
 
   const selectedNode = useMemo(
@@ -474,6 +482,134 @@ const EditorApp = () => {
     }
     return map;
   }, [doc.graph.edges]);
+  const nodeOrderIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    doc.graph.nodes.forEach((n, idx) => map.set(n.id, idx));
+    return map;
+  }, [doc.graph.nodes]);
+  const nodeTreeState = useMemo(() => {
+    const allNodeIds = doc.graph.nodes.map((n) => n.id);
+    const rootId = doc.graph.nodes.find((n) => n.isRoot)?.id ?? null;
+    const undirected = new Map<string, Set<string>>();
+    const directedOut = new Map<string, Set<string>>();
+    for (const id of allNodeIds) {
+      undirected.set(id, new Set<string>());
+      directedOut.set(id, new Set<string>());
+    }
+    for (const e of doc.graph.edges) {
+      if (!undirected.has(e.fromNodeId) || !undirected.has(e.toNodeId)) {
+        continue;
+      }
+      undirected.get(e.fromNodeId)!.add(e.toNodeId);
+      undirected.get(e.toNodeId)!.add(e.fromNodeId);
+      directedOut.get(e.fromNodeId)!.add(e.toNodeId);
+    }
+    const sortIds = (a: string, b: string) =>
+      (nodeOrderIndex.get(a) ?? Number.MAX_SAFE_INTEGER) -
+        (nodeOrderIndex.get(b) ?? Number.MAX_SAFE_INTEGER) || a.localeCompare(b);
+
+    const components: string[][] = [];
+    const componentIndexByNode = new Map<string, number>();
+    const seen = new Set<string>();
+    for (const id of allNodeIds) {
+      if (seen.has(id)) {
+        continue;
+      }
+      const queue = [id];
+      seen.add(id);
+      const component: string[] = [];
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        component.push(cur);
+        const neighbors = Array.from(undirected.get(cur) ?? []).sort(sortIds);
+        for (const next of neighbors) {
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      component.sort(sortIds);
+      const compIndex = components.length;
+      for (const nodeId of component) {
+        componentIndexByNode.set(nodeId, compIndex);
+      }
+      components.push(component);
+    }
+
+    const incomingInComponent = new Map<string, number>();
+    for (const id of allNodeIds) {
+      incomingInComponent.set(id, 0);
+    }
+    for (const e of doc.graph.edges) {
+      const fromComp = componentIndexByNode.get(e.fromNodeId);
+      const toComp = componentIndexByNode.get(e.toNodeId);
+      if (fromComp === undefined || toComp === undefined || fromComp !== toComp) {
+        continue;
+      }
+      incomingInComponent.set(e.toNodeId, (incomingInComponent.get(e.toNodeId) ?? 0) + 1);
+    }
+    const canSetAsRoot = new Set<string>(
+      allNodeIds.filter((id) => (incomingInComponent.get(id) ?? 0) === 0)
+    );
+
+    const legalNodes = new Set<string>();
+    if (rootId) {
+      const legalComponent = components.find((comp) => comp.includes(rootId));
+      if (legalComponent) {
+        for (const id of legalComponent) {
+          legalNodes.add(id);
+        }
+      }
+    }
+    const illegalNodes = new Set<string>(
+      allNodeIds.filter((id) => id !== rootId && !legalNodes.has(id))
+    );
+
+    const numberById = new Map<string, number>();
+    let nextNumber = 1;
+    if (rootId) {
+      numberById.set(rootId, 0);
+      const visitQueue = [rootId];
+      const visited = new Set<string>([rootId]);
+      while (visitQueue.length > 0) {
+        const cur = visitQueue.shift()!;
+        const outs = Array.from(directedOut.get(cur) ?? []).sort(sortIds);
+        for (const next of outs) {
+          if (!legalNodes.has(next) || visited.has(next)) {
+            continue;
+          }
+          visited.add(next);
+          numberById.set(next, nextNumber++);
+          visitQueue.push(next);
+        }
+      }
+      for (const id of Array.from(legalNodes).sort(sortIds)) {
+        if (id !== rootId && !numberById.has(id)) {
+          numberById.set(id, nextNumber++);
+        }
+      }
+    }
+    for (const comp of components) {
+      const isLegalComp = !!rootId && comp.includes(rootId);
+      if (isLegalComp) {
+        continue;
+      }
+      for (const id of comp.sort(sortIds)) {
+        if (!numberById.has(id)) {
+          numberById.set(id, nextNumber++);
+        }
+      }
+    }
+
+    return {
+      rootId,
+      legalNodes,
+      illegalNodes,
+      canSetAsRoot,
+      numberById,
+    };
+  }, [doc.graph.nodes, doc.graph.edges, nodeOrderIndex]);
   const clientToWorld = (clientX: number, clientY: number) => {
     if (!canvasRef.current) {
       return { x: 0, y: 0 };
@@ -508,6 +644,16 @@ const EditorApp = () => {
         options: options.sort((a, b) => a.label.localeCompare(b.label)),
       }));
   }, [nodeDefs]);
+  const nodeSearchOptions = useMemo(
+    () =>
+      doc.graph.nodes
+        .map((n) => ({
+          value: n.id,
+          label: `${n.title || n.id} (${n.id})`,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [doc.graph.nodes]
+  );
 
   useEffect(() => {
     latestSerializedRef.current = serialized;
@@ -525,27 +671,23 @@ const EditorApp = () => {
     }
     const next = {
       id: selectedNode.id,
-      title: selectedNode.title,
-      inputsText: pinLines(selectedNode.inputs),
-      outputsText: pinLines(selectedNode.outputs),
+      description: selectedNode.description ?? "",
     };
     const prev = inspectorFormSyncRef.current;
-    if (
-      prev &&
-      prev.id === next.id &&
-      prev.title === next.title &&
-      prev.inputsText === next.inputsText &&
-      prev.outputsText === next.outputsText
-    ) {
+    if (prev && prev.id === next.id && prev.description === next.description) {
       return;
     }
     inspectorFormSyncRef.current = next;
     form.setFieldsValue({
-      title: next.title,
-      inputs: next.inputsText,
-      outputs: next.outputsText,
+      description: next.description,
     });
   }, [selectedNode, form]);
+
+  useEffect(() => {
+    if (findNodeId && !doc.graph.nodes.some((n) => n.id === findNodeId)) {
+      setFindNodeId("");
+    }
+  }, [doc.graph.nodes, findNodeId]);
 
   useEffect(() => {
     if (!pending) {
@@ -820,6 +962,23 @@ const EditorApp = () => {
   }, [pan]);
 
   useEffect(() => {
+    if (!nodeContextMenu) {
+      return;
+    }
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(".bp-node-context-menu")) {
+        return;
+      }
+      setNodeContextMenu(null);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [nodeContextMenu]);
+
+  useEffect(() => {
     return () => {
       if (clearFocusTimerRef.current !== null) {
         window.clearTimeout(clearFocusTimerRef.current);
@@ -847,6 +1006,8 @@ const EditorApp = () => {
           {
             id,
             title: template?.title || template?.name || "New Node",
+            description: template?.desc ?? "",
+            isRoot: false,
             x: 160 + prev.graph.nodes.length * 24,
             y: 160 + prev.graph.nodes.length * 16,
             inputs,
@@ -880,6 +1041,7 @@ const EditorApp = () => {
     }));
     setSelectedNodeIds([]);
     setSelectedNodeId(null);
+    setNodeContextMenu(null);
   };
   onDeleteNodeRef.current = onDeleteNode;
 
@@ -992,9 +1154,35 @@ const EditorApp = () => {
     }));
     setConnectionHint(null);
     setPending(null);
+    setNodeContextMenu(null);
+  };
+  const onSetRootNode = (nodeId: string) => {
+    if (!nodeTreeState.canSetAsRoot.has(nodeId)) {
+      setConnectionHint("Only a tree root node (without incoming links) can be set as root.");
+      setNodeContextMenu(null);
+      return;
+    }
+    setDoc((prev) => ({
+      ...prev,
+      graph: {
+        ...prev.graph,
+        nodes: prev.graph.nodes.map((n) => ({
+          ...n,
+          isRoot: n.id === nodeId,
+        })),
+      },
+    }));
+    setSelectedNodeId(nodeId);
+    setSelectedNodeIds([nodeId]);
+    setSelectedEdgeId(null);
+    setConnectionHint(null);
+    setNodeContextMenu(null);
   };
   const toggleSection = (key: "node" | "edit" | "layout" | "canvasBuild") => {
     setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+  const toggleInspectorPins = (key: "inputs" | "outputs") => {
+    setCollapsedInspectorPins((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const onOutputPinClick = (nodeId: string, pinName: string, cursor?: PendingCursor) => {
@@ -1061,12 +1249,109 @@ const EditorApp = () => {
     setConnectionHint(null);
     setPending(null);
     setSelectedEdgeId(null);
+    setNodeContextMenu(null);
   };
   onDeleteEdgeRef.current = () => {
     if (!selectedEdgeId) {
       return;
     }
     onDeleteEdge(selectedEdgeId);
+  };
+  const onEditPinDefaultValue = (nodeId: string, pinName: string, nextValue: string) => {
+    // Batch inspector edits into one undo step when input blurs.
+    skipPushHistoryRef.current = true;
+    setDoc((prev) => ({
+      ...prev,
+      graph: {
+        ...prev.graph,
+        nodes: prev.graph.nodes.map((n) => {
+          if (n.id !== nodeId) {
+            return n;
+          }
+          const values = { ...(n.values ?? {}) };
+          if (nextValue.trim() === "") {
+            delete values[pinName];
+          } else {
+            values[pinName] = nextValue;
+          }
+          return {
+            ...n,
+            values: Object.keys(values).length > 0 ? values : undefined,
+          };
+        }),
+      },
+    }));
+  };
+  const renderDefaultValueEditor = (nodeId: string, pin: Pin) => {
+    const current = selectedLookup.get(nodeId)?.values?.[pin.name] ?? "";
+    const pinType = pin.type.trim().toLowerCase();
+    if (pinType === "number" || pinType === "int" || pinType === "float") {
+      const num = current.trim() === "" ? null : Number(current);
+      return (
+        <InputNumber
+          style={{ width: "100%" }}
+          value={Number.isFinite(num as number) ? (num as number) : null}
+          placeholder={pinType === "int" ? "0" : "0.0"}
+          onFocus={() => {
+            inspectorEditingRef.current = true;
+          }}
+          onBlur={commitInspectorHistoryIfEnded}
+          onChange={(v) => onEditPinDefaultValue(nodeId, pin.name, v === null ? "" : String(v))}
+        />
+      );
+    }
+    if (pinType === "bool" || pinType === "boolean") {
+      const checked = current.trim().toLowerCase() === "true";
+      return (
+        <div
+          className="bp-default-bool"
+          onFocusCapture={() => {
+            inspectorEditingRef.current = true;
+          }}
+          onBlurCapture={commitInspectorHistoryIfEnded}
+        >
+          <Switch
+            checked={checked}
+            onChange={(v) => onEditPinDefaultValue(nodeId, pin.name, v ? "true" : "false")}
+          />
+          <Typography.Text type="secondary">{checked ? "true" : "false"}</Typography.Text>
+        </div>
+      );
+    }
+    return (
+      <Input
+        value={current}
+        placeholder="(empty)"
+        onFocus={() => {
+          inspectorEditingRef.current = true;
+        }}
+        onBlur={commitInspectorHistoryIfEnded}
+        onChange={(e) => onEditPinDefaultValue(nodeId, pin.name, e.target.value)}
+      />
+    );
+  };
+  const focusNodeById = (nodeId: string) => {
+    const node = selectedLookup.get(nodeId);
+    if (!node || !canvasRef.current) {
+      return;
+    }
+    const rect = canvasRef.current.getBoundingClientRect();
+    const centerWorldX = node.x + nodeWidth / 2;
+    const centerWorldY = node.y + getNodeHeight(node) / 2;
+    const targetX = rect.width / 2 - centerWorldX * viewport.scale;
+    const targetY = rect.height / 2 - centerWorldY * viewport.scale;
+    setSelectedNodeId(nodeId);
+    setSelectedNodeIds([nodeId]);
+    setSelectedEdgeId(null);
+    setViewport((prev) => ({ ...prev, x: targetX, y: targetY }));
+    setConnectionHint(null);
+    setPending(null);
+  };
+  const onFocusFoundNode = () => {
+    if (!findNodeId) {
+      return;
+    }
+    focusNodeById(findNodeId);
   };
 
   useEffect(() => {
@@ -1111,6 +1396,11 @@ const EditorApp = () => {
         setSelectedEdgeId(null);
         return;
       }
+      if (withMeta && key === "f") {
+        e.preventDefault();
+        nodeFinderRef.current?.focus?.();
+        return;
+      }
       if (withMeta && key === "c") {
         const targets = selectedNodeIds.length > 0 ? selectedNodeIds : selectedNodeId ? [selectedNodeId] : [];
         if (targets.length === 0) {
@@ -1151,6 +1441,7 @@ const EditorApp = () => {
             newNodes.push({
               ...node,
               id: nextId,
+              isRoot: false,
               x: node.x + offset,
               y: node.y + offset,
               inputs: node.inputs.map((p) => ({ ...p })),
@@ -1203,6 +1494,7 @@ const EditorApp = () => {
           cancelDragRef.current();
           return;
         }
+        setNodeContextMenu(null);
         setPending(null);
         setConnectionHint(null);
         setSelectedNodeIds([]);
@@ -1320,7 +1612,7 @@ const EditorApp = () => {
           <div className="bp-toolbox-section">
             <div className="bp-toolbox-header">
               <Typography.Text className="bp-toolbox-title">Node</Typography.Text>
-              <Button type="text" size="small" onClick={() => toggleSection("node")}>
+              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("node")}>
                 {collapsedSections.node ? "Expand" : "Collapse"}
               </Button>
             </div>
@@ -1336,6 +1628,20 @@ const EditorApp = () => {
                   showSearch
                   optionFilterProp="label"
                 />
+                <Select
+                  ref={nodeFinderRef as unknown as React.Ref<any>}
+                  style={{ width: "100%" }}
+                  placeholder="Find node (Ctrl/Cmd+F)"
+                  value={findNodeId || undefined}
+                  options={nodeSearchOptions}
+                  onChange={(v) => setFindNodeId(String(v))}
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                />
+                <Button block onClick={onFocusFoundNode} disabled={!findNodeId}>
+                  Focus Node
+                </Button>
                 <Button type="primary" block onClick={onAddNode}>
                   Add Node
                 </Button>
@@ -1352,7 +1658,7 @@ const EditorApp = () => {
           <div className="bp-toolbox-section">
             <div className="bp-toolbox-header">
               <Typography.Text className="bp-toolbox-title">Edit</Typography.Text>
-              <Button type="text" size="small" onClick={() => toggleSection("edit")}>
+              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("edit")}>
                 {collapsedSections.edit ? "Expand" : "Collapse"}
               </Button>
             </div>
@@ -1375,7 +1681,7 @@ const EditorApp = () => {
           <div className="bp-toolbox-section">
             <div className="bp-toolbox-header">
               <Typography.Text className="bp-toolbox-title">Layout</Typography.Text>
-              <Button type="text" size="small" onClick={() => toggleSection("layout")}>
+              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("layout")}>
                 {collapsedSections.layout ? "Expand" : "Collapse"}
               </Button>
             </div>
@@ -1409,7 +1715,7 @@ const EditorApp = () => {
           <div className="bp-toolbox-section">
             <div className="bp-toolbox-header">
               <Typography.Text className="bp-toolbox-title">Canvas & Build</Typography.Text>
-              <Button type="text" size="small" onClick={() => toggleSection("canvasBuild")}>
+              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("canvasBuild")}>
                 {collapsedSections.canvasBuild ? "Expand" : "Collapse"}
               </Button>
             </div>
@@ -1434,7 +1740,7 @@ const EditorApp = () => {
                 {selectedNodeIds.length > 1 ? <Tag color="processing">Selected {selectedNodeIds.length}</Tag> : null}
                 {connectionHint ? <Tag color="error">{connectionHint}</Tag> : null}
                 <Tag>Zoom {Math.round(viewport.scale * 100)}%</Tag>
-                <Tag>Shortcuts: Del | Ctrl/Cmd+Z/Y | Ctrl/Cmd+A | Ctrl/Cmd+0 | Esc</Tag>
+                <Tag>Shortcuts: Del | Ctrl/Cmd+Z/Y | Ctrl/Cmd+A | Ctrl/Cmd+F | Ctrl/Cmd+0 | Esc</Tag>
               </Space>
             ) : null}
           </div>
@@ -1453,15 +1759,11 @@ const EditorApp = () => {
                 form={form}
                 layout="vertical"
                 onValuesChange={(v) => {
-                  const title = String(v.title ?? "");
-                  const parsedInputs = parsePinLines(String(v.inputs ?? ""));
-                  const parsedOutputs = parsePinLines(String(v.outputs ?? ""));
-                  if (parsedInputs.error || parsedOutputs.error) {
-                    setConnectionHint(parsedInputs.error ?? parsedOutputs.error ?? null);
+                  if (!Object.prototype.hasOwnProperty.call(v, "description")) {
                     return;
                   }
-                  setConnectionHint(null);
-                  // Batch inspector text edits into one undo step on blur.
+                  const description = String(v.description ?? "");
+                  // Batch inspector description edits into one undo step on blur.
                   skipPushHistoryRef.current = true;
                   setDoc((prev) => ({
                     ...prev,
@@ -1471,9 +1773,7 @@ const EditorApp = () => {
                         n.id === selectedNode.id
                           ? {
                             ...n,
-                            title,
-                            inputs: parsedInputs.pins,
-                            outputs: parsedOutputs.pins,
+                            description,
                           }
                           : n
                       ),
@@ -1484,37 +1784,76 @@ const EditorApp = () => {
                 <Form.Item label="Node Id">
                   <Input value={selectedNode.id} readOnly />
                 </Form.Item>
-                <Form.Item label="Title" name="title">
-                  <Input
+                <Form.Item label="Title">
+                  <Input value={selectedNode.title} readOnly />
+                </Form.Item>
+                <Form.Item label="Description" name="description">
+                  <Input.TextArea
+                    autoSize={{ minRows: 2, maxRows: 6 }}
+                    placeholder="Node description..."
                     onFocus={() => {
                       inspectorEditingRef.current = true;
                     }}
                     onBlur={commitInspectorHistoryIfEnded}
                   />
                 </Form.Item>
-                <Form.Item label="Inputs">
-                  <Form.Item name="inputs" noStyle>
-                    <Input.TextArea
-                      autoSize={{ minRows: 3, maxRows: 8 }}
-                      placeholder="One pin per line: name:type"
-                      onFocus={() => {
-                        inspectorEditingRef.current = true;
-                      }}
-                      onBlur={commitInspectorHistoryIfEnded}
-                    />
-                  </Form.Item>
+                <Form.Item
+                  label={
+                    <div className="bp-inspector-section-header">
+                      <span>Inputs</span>
+                      <Button className="bp-collapse-btn" size="small" onClick={() => toggleInspectorPins("inputs")}>
+                        {collapsedInspectorPins.inputs ? "Expand" : "Collapse"}
+                      </Button>
+                    </div>
+                  }
+                >
+                  {!collapsedInspectorPins.inputs ? (
+                    <div className="bp-pin-grid">
+                      <div className="bp-pin-grid-head">Name</div>
+                      <div className="bp-pin-grid-head">Type</div>
+                      <div className="bp-pin-grid-head">Default Value</div>
+                      {selectedNode.inputs.length === 0 ? (
+                        <Typography.Text type="secondary">No input pins.</Typography.Text>
+                      ) : (
+                        selectedNode.inputs.map((pin) => (
+                          <React.Fragment key={`${selectedNode.id}-inspector-input-${pin.name}`}>
+                            <Input value={pin.name} readOnly />
+                            <Input value={pin.type} readOnly />
+                            {renderDefaultValueEditor(selectedNode.id, pin)}
+                          </React.Fragment>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
                 </Form.Item>
-                <Form.Item label="Outputs">
-                  <Form.Item name="outputs" noStyle>
-                    <Input.TextArea
-                      autoSize={{ minRows: 3, maxRows: 8 }}
-                      placeholder="One pin per line: name:type"
-                      onFocus={() => {
-                        inspectorEditingRef.current = true;
-                      }}
-                      onBlur={commitInspectorHistoryIfEnded}
-                    />
-                  </Form.Item>
+                <Form.Item
+                  label={
+                    <div className="bp-inspector-section-header">
+                      <span>Outputs</span>
+                      <Button className="bp-collapse-btn" size="small" onClick={() => toggleInspectorPins("outputs")}>
+                        {collapsedInspectorPins.outputs ? "Expand" : "Collapse"}
+                      </Button>
+                    </div>
+                  }
+                >
+                  {!collapsedInspectorPins.outputs ? (
+                    <div className="bp-pin-grid">
+                      <div className="bp-pin-grid-head">Name</div>
+                      <div className="bp-pin-grid-head">Type</div>
+                      <div className="bp-pin-grid-head">Default Value</div>
+                      {selectedNode.outputs.length === 0 ? (
+                        <Typography.Text type="secondary">No output pins.</Typography.Text>
+                      ) : (
+                        selectedNode.outputs.map((pin) => (
+                          <React.Fragment key={`${selectedNode.id}-inspector-output-${pin.name}`}>
+                            <Input value={pin.name} readOnly />
+                            <Input value={pin.type} readOnly />
+                            {renderDefaultValueEditor(selectedNode.id, pin)}
+                          </React.Fragment>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
                 </Form.Item>
               </Form>
             </div>
@@ -1562,6 +1901,7 @@ const EditorApp = () => {
               target.classList.contains("bp-edges")
             ) {
               if (e.altKey || e.button === 1) {
+                setNodeContextMenu(null);
                 setPan({
                   startClientX: e.clientX,
                   startClientY: e.clientY,
@@ -1577,7 +1917,15 @@ const EditorApp = () => {
                 });
                 setSelectedNodeIds([]);
                 setSelectedNodeId(null);
+                setNodeContextMenu(null);
               }
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            const target = e.target as HTMLElement | null;
+            if (!target?.closest(".bp-node-context-menu")) {
+              setNodeContextMenu(null);
             }
           }}
           onMouseMove={(e) => {
@@ -1636,7 +1984,11 @@ const EditorApp = () => {
             <Card
               key={node.id}
               size="small"
-              className={`bp-node ${selectedNodeId === node.id || selectedNodeIds.includes(node.id) ? "bp-node-selected" : ""
+              className={`bp-node ${nodeTreeState.rootId === node.id ? "bp-node-root" : ""
+                } ${nodeTreeState.legalNodes.has(node.id) && nodeTreeState.rootId !== node.id ? "bp-node-legal" : ""
+                } ${nodeTreeState.illegalNodes.has(node.id) ? "bp-node-illegal" : ""
+                } ${selectedNodeId === node.id || selectedNodeIds.includes(node.id) ? "bp-node-selected" : ""
+                } ${selectedNodeId === node.id ? "bp-node-selected-primary" : ""
                 } ${issueNodeIds.has(node.id) ? "bp-node-issue" : ""
                 } ${drag?.nodeIds.includes(node.id) ? "bp-node-dragging" : ""
                 }`}
@@ -1647,12 +1999,18 @@ const EditorApp = () => {
                 transform: `scale(${viewport.scale})`,
                 transformOrigin: "top left",
               }}
-              title={node.title}
+              title={
+                <div className="bp-node-title-row">
+                  <span className="bp-node-title-text">{node.title}</span>
+                  <span className="bp-node-title-index">{nodeTreeState.numberById.get(node.id) ?? "-"}</span>
+                </div>
+              }
               onMouseDown={(e) => {
                 if (e.button !== 0) {
                   return;
                 }
                 e.stopPropagation();
+                setNodeContextMenu(null);
                 const target = e.target;
                 if (target instanceof Element && target.closest(".bp-pin")) {
                   return;
@@ -1704,75 +2062,98 @@ const EditorApp = () => {
                   });
                 }
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!canvasRef.current) {
+                  return;
+                }
+                const rect = canvasRef.current.getBoundingClientRect();
+                setSelectedNodeId(node.id);
+                setSelectedNodeIds([node.id]);
+                setSelectedEdgeId(null);
+                setNodeContextMenu({
+                  nodeId: node.id,
+                  x: e.clientX - rect.left,
+                  y: e.clientY - rect.top,
+                });
+              }}
             >
               <div className="bp-node-content">
-                <div className="bp-pin-column">
-                  {node.inputs.map((pin) => (
-                    <button
-                      key={`${node.id}-in-${pin.name}`}
-                      className={`bp-pin bp-pin-input ${invalidPinFlash?.direction === "input" &&
-                        invalidPinFlash.nodeId === node.id &&
-                        invalidPinFlash.pinName === pin.name
-                        ? "bp-pin-invalid"
-                        : hoveredInputPin?.nodeId === node.id && hoveredInputPin.pinName === pin.name
-                          ? hoveredInputPin.canConnect
-                            ? "bp-pin-connectable"
-                            : "bp-pin-unconnectable"
-                          : ""
-                        }`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onInputPinClick(node.id, pin.name);
-                      }}
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                      }}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                      }}
-                      onMouseEnter={() => {
-                        if (!pending) {
-                          return;
-                        }
-                        const reason = validateConnection(doc, pending, node.id, pin.name);
-                        setHoveredInputPin({
-                          nodeId: node.id,
-                          pinName: pin.name,
-                          canConnect: !reason,
-                        });
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredInputPin((prev) =>
-                          prev && prev.nodeId === node.id && prev.pinName === pin.name ? null : prev
-                        );
-                      }}
-                    >
-                      {pin.name}
-                    </button>
-                  ))}
-                </div>
-                <div className="bp-pin-column bp-pin-column-right">
-                  {node.outputs.map((pin) => (
-                    <button
-                      key={`${node.id}-out-${pin.name}`}
-                      className="bp-pin bp-pin-output"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOutputPinClick(node.id, pin.name, {
-                          clientX: e.clientX,
-                          clientY: e.clientY,
-                        });
-                      }}
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                      }}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                      }}
-                    >
-                      {pin.name}
-                    </button>
-                  ))}
+                {node.description?.trim() ? (
+                  <div className="bp-node-description" title={node.description}>
+                    {node.description}
+                  </div>
+                ) : null}
+                <div className="bp-node-pins">
+                  <div className="bp-pin-column">
+                    {node.inputs.map((pin) => (
+                      <button
+                        key={`${node.id}-in-${pin.name}`}
+                        className={`bp-pin bp-pin-input ${invalidPinFlash?.direction === "input" &&
+                          invalidPinFlash.nodeId === node.id &&
+                          invalidPinFlash.pinName === pin.name
+                          ? "bp-pin-invalid"
+                          : hoveredInputPin?.nodeId === node.id && hoveredInputPin.pinName === pin.name
+                            ? hoveredInputPin.canConnect
+                              ? "bp-pin-connectable"
+                              : "bp-pin-unconnectable"
+                            : ""
+                          }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onInputPinClick(node.id, pin.name);
+                        }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onMouseEnter={() => {
+                          if (!pending) {
+                            return;
+                          }
+                          const reason = validateConnection(doc, pending, node.id, pin.name);
+                          setHoveredInputPin({
+                            nodeId: node.id,
+                            pinName: pin.name,
+                            canConnect: !reason,
+                          });
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredInputPin((prev) =>
+                            prev && prev.nodeId === node.id && prev.pinName === pin.name ? null : prev
+                          );
+                        }}
+                      >
+                        {pin.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="bp-pin-column bp-pin-column-right">
+                    {node.outputs.map((pin) => (
+                      <button
+                        key={`${node.id}-out-${pin.name}`}
+                        className="bp-pin bp-pin-output"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOutputPinClick(node.id, pin.name, {
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                          });
+                        }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                      >
+                        {pin.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </Card>
@@ -1787,6 +2168,22 @@ const EditorApp = () => {
                 height: Math.abs(marquee.currentClientY - marquee.startClientY),
               }}
             />
+          ) : null}
+          {nodeContextMenu ? (
+            <div
+              className="bp-node-context-menu"
+              style={{ left: nodeContextMenu.x, top: nodeContextMenu.y }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="bp-node-context-menu-item"
+                disabled={!nodeTreeState.canSetAsRoot.has(nodeContextMenu.nodeId)}
+                onClick={() => onSetRootNode(nodeContextMenu.nodeId)}
+              >
+                Set As Root Node
+              </button>
+            </div>
           ) : null}
         </div>
       </div>

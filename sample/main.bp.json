@@ -7,15 +7,16 @@
       {
         "id": "start",
         "title": "Event Start",
-        "x": 80,
-        "y": 80,
+        "x": 78.96938984787164,
+        "y": 79,
         "inputs": [],
         "outputs": [
           {
             "name": "exec",
             "type": "exec"
           }
-        ]
+        ],
+        "isRoot": true
       },
       {
         "id": "print_hello",
@@ -40,56 +41,13 @@
         ],
         "values": {
           "text": "Hello Blueprint!"
-        }
+        },
+        "isRoot": false
       },
       {
         "id": "math_add",
         "title": "Add Int",
         "x": 400,
-        "y": 279,
-        "inputs": [
-          {
-            "name": "a",
-            "type": "number"
-          },
-          {
-            "name": "b",
-            "type": "number"
-          }
-        ],
-        "outputs": [
-          {
-            "name": "result",
-            "type": "number"
-          }
-        ],
-        "values": {
-          "a": "1",
-          "b": "2"
-        }
-      },
-      {
-        "id": "node_nuflc6",
-        "title": "Event Start",
-        "x": 80,
-        "y": 480,
-        "inputs": [
-          {
-            "name": "in",
-            "type": "exec"
-          }
-        ],
-        "outputs": [
-          {
-            "name": "exec",
-            "type": "exec"
-          }
-        ]
-      },
-      {
-        "id": "node_nvwn0z",
-        "title": "Add Int",
-        "x": 80,
         "y": 280,
         "inputs": [
           {
@@ -110,7 +68,55 @@
         "values": {
           "a": "1",
           "b": "2"
-        }
+        },
+        "description": "随便输入一点描述，看看这个节点是干嘛用的",
+        "isRoot": false
+      },
+      {
+        "id": "node_nuflc6",
+        "title": "Event Start",
+        "x": 80,
+        "y": 481,
+        "inputs": [
+          {
+            "name": "in",
+            "type": "exec"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "isRoot": false
+      },
+      {
+        "id": "node_nvwn0z",
+        "title": "Add Int",
+        "x": 80,
+        "y": 277.9387796957432,
+        "inputs": [
+          {
+            "name": "a",
+            "type": "number"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "result",
+            "type": "number"
+          }
+        ],
+        "values": {
+          "a": "1",
+          "b": "2"
+        },
+        "isRoot": false
       },
       {
         "id": "start_copy",
@@ -123,12 +129,13 @@
             "name": "exec",
             "type": "exec"
           }
-        ]
+        ],
+        "isRoot": false
       },
       {
         "id": "node_d4sy6w",
-        "title": "Print",
-        "x": 720,
+        "title": "Printsss",
+        "x": 718.9693898478716,
         "y": 80,
         "inputs": [
           {
@@ -148,13 +155,14 @@
         ],
         "values": {
           "text": "Hello from Blueprint sample"
-        }
+        },
+        "isRoot": false
       },
       {
         "id": "node_bgihbj",
         "title": "Print",
         "x": 400,
-        "y": 480,
+        "y": 479,
         "inputs": [
           {
             "name": "exec",
@@ -173,7 +181,8 @@
         ],
         "values": {
           "text": "Hello from Blueprint sample"
-        }
+        },
+        "isRoot": false
       }
     ],
     "edges": [
@@ -206,8 +215,8 @@
         "toPin": "exec"
       },
       {
-        "id": "start_copy:exec->node_bgihbj:exec",
-        "fromNodeId": "start_copy",
+        "id": "node_nuflc6:exec->node_bgihbj:exec",
+        "fromNodeId": "node_nuflc6",
         "fromPin": "exec",
         "toNodeId": "node_bgihbj",
         "toPin": "exec"
