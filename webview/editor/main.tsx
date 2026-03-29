@@ -5,6 +5,24 @@ import { getRootEligibilityHintKey, validateConnectionHintKey } from "./graph-va
 import { computeNodeTreeState } from "./graph-tree-state";
 import { resolveUiLocale, translateUiText, type UiTextKey } from "./ui-text";
 import * as vscodeApi from "./vscodeApi";
+import {
+  IconAlignBottom,
+  IconAlignLeft,
+  IconAlignRight,
+  IconAlignTop,
+  IconAutoLayout,
+  IconBuild,
+  IconDeleteEdge,
+  IconDeleteNode,
+  IconDistributeH,
+  IconDistributeV,
+  IconFocusNode,
+  IconLegend,
+  IconRedo,
+  IconReloadDefs,
+  IconResetView,
+  IconUndo,
+} from "./canvas-toolbar-icons";
 import "./style.scss";
 
 type Pin = { name: string; type: string };
@@ -205,23 +223,50 @@ type MarqueeState = {
 };
 
 const nodeWidth = 220;
-const titleHeight = 32;
-const pinRowHeight = 24;
 const DRAG_DEBUG_KEY = "bp.dragDebug";
 
-const getPinY = (idx: number) => titleHeight + 24 + idx * pinRowHeight + pinRowHeight / 2;
-const getNodeHeight = (node: BlueprintNode) =>
-  titleHeight + 24 + Math.max(node.inputs.length, node.outputs.length) * pinRowHeight + 24;
+/** Match `.bp-node` border, `.ant-card-head { min-height: 34px }`, `.ant-card-body` padding, optional description, `.bp-pin-column` row spacing (see `style.scss`). */
+const NODE_BORDER_TOP_PX = 1;
+const CARD_HEAD_MIN_PX = 34;
+const CARD_BODY_PAD_TOP_PX = 8;
+const NODE_CONTENT_GAP_PX = 8;
+const DESC_LINE_PX = Math.ceil(11 * 1.4);
+/** Vertical distance between pin centers (gap 6px + ~18px row in `.bp-pin-column`). */
+const PIN_CENTER_STEP_PX = 24;
+/** Center of first pin row from the top of `.bp-node-pins` (~half of `.bp-pin` row height). */
+const FIRST_PIN_CENTER_FROM_PINS_TOP_PX = 8;
+
+/** Y offset from node top (unscaled, same space as `node.y`) to the vertical center of pin at `pinIndex` in its column. */
+const getPinCenterYOffsetFromNodeTop = (node: BlueprintNode, pinIndex: number): number => {
+  let o = NODE_BORDER_TOP_PX + CARD_HEAD_MIN_PX + CARD_BODY_PAD_TOP_PX;
+  if (node.description?.trim()) {
+    o += DESC_LINE_PX + NODE_CONTENT_GAP_PX;
+  }
+  o += FIRST_PIN_CENTER_FROM_PINS_TOP_PX + pinIndex * PIN_CENTER_STEP_PX;
+  return o;
+};
+
+const getNodeHeight = (node: BlueprintNode) => {
+  const n = Math.max(node.inputs.length, node.outputs.length);
+  let h =
+    NODE_BORDER_TOP_PX +
+    CARD_HEAD_MIN_PX +
+    CARD_BODY_PAD_TOP_PX +
+    (node.description?.trim() ? DESC_LINE_PX + NODE_CONTENT_GAP_PX : 0);
+  if (n > 0) {
+    h +=
+      FIRST_PIN_CENTER_FROM_PINS_TOP_PX +
+      (n - 1) * PIN_CENTER_STEP_PX +
+      PIN_CENTER_STEP_PX / 2;
+  }
+  h += 10 + 1;
+  return h;
+};
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 const PIN_ANCHOR_OFFSET = 6;
 const getPinHoverTitle = (pin: Pin): string => `${pin.name} (${pin.type})`;
 
 type PinTypeTooltipState = { text: string; left: number; top: number };
-const getPinButtonKey = (
-  direction: "input" | "output",
-  nodeId: string,
-  pinName: string
-): string => `${direction}::${nodeId}::${pinName}`;
 const getPinTypeClassName = (type: string): string => {
   const t = type.trim().toLowerCase();
   if (!t) return "bp-pin-type-unknown";
@@ -305,7 +350,14 @@ const autoLayoutNodes = (nodes: BlueprintNode[], edges: BlueprintEdge[]): Bluepr
   const yStart = 80;
   const xGap = 320;
   const yGap = 180;
-  const nodeSizeY = titleHeight + 24 + 4 * pinRowHeight + 24;
+  const nodeSizeY = getNodeHeight({
+    id: "_layout",
+    title: "",
+    x: 0,
+    y: 0,
+    inputs: Array.from({ length: 4 }, (_, i) => ({ name: `i${i}`, type: "x" })),
+    outputs: [{ name: "o", type: "x" }],
+  });
 
   const placed = new Map<string, { x: number; y: number }>();
   const levels = [...buckets.keys()].sort((a, b) => a - b);
@@ -392,7 +444,6 @@ const EditorApp = () => {
   const [buildMessage, setBuildMessage] = useState<string>("");
   const [buildIssues, setBuildIssues] = useState<BuildIssue[]>([]);
   const [nodeDefs, setNodeDefs] = useState<NodeDef[]>([]);
-  const [activeNodeDef, setActiveNodeDef] = useState<string>("");
   const [findNodeId, setFindNodeId] = useState<string>("");
   const [extensionVersion, setExtensionVersion] = useState<string>("");
   const [focusedEdgeId, setFocusedEdgeId] = useState<string | null>(null);
@@ -407,14 +458,21 @@ const EditorApp = () => {
   );
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [nodeContextMenu, setNodeContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const [canvasContextMenu, setCanvasContextMenu] = useState<{
+    x: number;
+    y: number;
+    worldX: number;
+    worldY: number;
+  } | null>(null);
+  /** Filter text for "add node from template" context menu */
+  const [addNodeTemplateQuery, setAddNodeTemplateQuery] = useState("");
+  const addNodeMenuSearchRef = useRef<any>(null);
+  const dismissContextMenus = () => {
+    setNodeContextMenu(null);
+    setCanvasContextMenu(null);
+  };
   const [form] = Form.useForm<{ description: string }>();
   const [historyState, setHistoryState] = useState({ index: -1, length: 0 });
-  const [collapsedSections, setCollapsedSections] = useState({
-    node: false,
-    edit: false,
-    layout: false,
-    canvasBuild: false,
-  });
   const [collapsedInspectorPins, setCollapsedInspectorPins] = useState({
     inputs: false,
     outputs: false,
@@ -443,44 +501,35 @@ const EditorApp = () => {
   const inspectorFormRef = useRef<HTMLDivElement | null>(null);
   const nodeFinderRef = useRef<{ focus?: () => void } | null>(null);
   const inspectorEditingRef = useRef(false);
-  const pinButtonRefsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
   const inspectorFormSyncRef = useRef<{
     id: string;
     description: string;
   } | null>(null);
-  const setPinButtonRef = (
+
+  /**
+   * Screen-space pin anchors from layout + viewport. Used for edge SVG paths so curves stay in sync
+   * while panning/zooming (DOM getBoundingClientRect during render lags one frame behind viewport).
+   */
+  const getPinAnchorFromGeometry = (
+    node: BlueprintNode,
     direction: "input" | "output",
-    nodeId: string,
     pinName: string
-  ) => (el: HTMLButtonElement | null) => {
-      const key = getPinButtonKey(direction, nodeId, pinName);
-      if (el) {
-        pinButtonRefsRef.current.set(key, el);
-      } else {
-        pinButtonRefsRef.current.delete(key);
-      }
-    };
-  const getPinAnchor = (
-    direction: "input" | "output",
-    nodeId: string,
-    pinName: string
-  ): { x: number; y: number } | null => {
-    if (!canvasRef.current) {
-      return null;
+  ): { x: number; y: number } => {
+    const pins = direction === "input" ? node.inputs : node.outputs;
+    const idx = Math.max(0, pins.findIndex((p) => p.name === pinName));
+    const yWorld = node.y + getPinCenterYOffsetFromNodeTop(node, idx);
+    const s = viewport.scale;
+    const ox = viewport.x;
+    const oy = viewport.y;
+    if (direction === "input") {
+      return {
+        x: node.x * s + ox + PIN_ANCHOR_OFFSET,
+        y: yWorld * s + oy,
+      };
     }
-    const key = getPinButtonKey(direction, nodeId, pinName);
-    const el = pinButtonRefsRef.current.get(key);
-    if (!el) {
-      return null;
-    }
-    const pinRect = el.getBoundingClientRect();
-    const canvasRect = canvasRef.current.getBoundingClientRect();
     return {
-      x:
-        direction === "input"
-          ? pinRect.left - canvasRect.left + PIN_ANCHOR_OFFSET
-          : pinRect.right - canvasRect.left - PIN_ANCHOR_OFFSET,
-      y: pinRect.top - canvasRect.top + pinRect.height / 2,
+      x: (node.x + nodeWidth) * s + ox - PIN_ANCHOR_OFFSET,
+      y: yWorld * s + oy,
     };
   };
 
@@ -583,6 +632,25 @@ const EditorApp = () => {
         options: options.sort((a, b) => a.label.localeCompare(b.label)),
       }));
   }, [nodeDefs]);
+
+  const filteredTemplateMenuGroups = useMemo(() => {
+    const q = addNodeTemplateQuery.trim().toLowerCase();
+    if (!q) {
+      return templateOptions;
+    }
+    return templateOptions
+      .map((group) => ({
+        label: group.label,
+        options: group.options.filter(
+          (opt) =>
+            opt.label.toLowerCase().includes(q) ||
+            opt.value.toLowerCase().includes(q) ||
+            group.label.toLowerCase().includes(q)
+        ),
+      }))
+      .filter((g) => g.options.length > 0);
+  }, [templateOptions, addNodeTemplateQuery]);
+
   const nodeSearchOptions = useMemo(
     () =>
       doc.graph.nodes
@@ -644,9 +712,6 @@ const EditorApp = () => {
         resetHistoryRef.current = true;
         const defs = (msg.nodeDefs ?? []).map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
         setNodeDefs(defs);
-        if (defs.length > 0) {
-          setActiveNodeDef(defs[0].name);
-        }
         setReady(true);
       } else if (msg.type === "fileChanged") {
         const parsed = parseDocument(msg.content);
@@ -669,11 +734,6 @@ const EditorApp = () => {
       } else if (msg.type === "settingLoaded") {
         const defs = (msg.nodeDefs ?? []).map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
         setNodeDefs(defs);
-        setActiveNodeDef((prev) => {
-          if (defs.length === 0) return "";
-          if (prev && defs.some((d) => d.name === prev)) return prev;
-          return defs[0].name;
-        });
       }
     });
     vscodeApi.postMessage({ type: "ready" });
@@ -901,21 +961,33 @@ const EditorApp = () => {
   }, [pan]);
 
   useEffect(() => {
-    if (!nodeContextMenu) {
+    if (!nodeContextMenu && !canvasContextMenu) {
       return;
     }
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest(".bp-node-context-menu")) {
+      if (target?.closest(".bp-node-context-menu") || target?.closest(".bp-canvas-context-menu")) {
         return;
       }
-      setNodeContextMenu(null);
+      dismissContextMenus();
+      setCanvasContextMenu(null);
     };
     window.addEventListener("mousedown", onPointerDown);
     return () => {
       window.removeEventListener("mousedown", onPointerDown);
     };
-  }, [nodeContextMenu]);
+  }, [nodeContextMenu, canvasContextMenu]);
+
+  useEffect(() => {
+    if (!canvasContextMenu) {
+      return;
+    }
+    setAddNodeTemplateQuery("");
+    const id = window.requestAnimationFrame(() => {
+      addNodeMenuSearchRef.current?.focus?.();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [canvasContextMenu]);
 
   useEffect(() => {
     return () => {
@@ -931,36 +1003,45 @@ const EditorApp = () => {
     };
   }, []);
 
-  const onAddNode = () => {
-    const template = nodeDefs.find((d) => d.name === activeNodeDef);
+  const addNodeFromTemplate = (templateName: string, worldPos?: { x: number; y: number }) => {
+    const template = nodeDefs.find((d) => d.name === templateName);
+    if (!template) {
+      return;
+    }
     const id = `node_${Math.random().toString(36).slice(2, 8)}`;
-    const inputs = template?.inputs ?? [{ name: "in", type: "exec" }];
-    const outputs = template?.outputs ?? [{ name: "out", type: "exec" }];
-    setDoc((prev) => ({
-      ...prev,
-      graph: {
-        ...prev.graph,
-        nodes: [
-          ...prev.graph.nodes,
-          {
-            id,
-            title: template?.title || template?.name || "New Node",
-            description: template?.desc ?? "",
-            isRoot: false,
-            x: 160 + prev.graph.nodes.length * 24,
-            y: 160 + prev.graph.nodes.length * 16,
-            inputs,
-            outputs,
-            values: template?.defaults
-              ? Object.fromEntries(
-                Object.entries(template.defaults).map(([k, v]) => [k, String(v)])
-              )
-              : undefined,
-          },
-        ],
-      },
-    }));
+    const inputs = template.inputs ?? [{ name: "in", type: "exec" }];
+    const outputs = template.outputs ?? [{ name: "out", type: "exec" }];
+    setDoc((prev) => {
+      const x = worldPos?.x ?? 160 + prev.graph.nodes.length * 24;
+      const y = worldPos?.y ?? 160 + prev.graph.nodes.length * 16;
+      return {
+        ...prev,
+        graph: {
+          ...prev.graph,
+          nodes: [
+            ...prev.graph.nodes,
+            {
+              id,
+              title: template.title || template.name || "New Node",
+              description: template.desc ?? "",
+              isRoot: false,
+              x,
+              y,
+              inputs,
+              outputs,
+              values: template.defaults
+                ? Object.fromEntries(
+                  Object.entries(template.defaults).map(([k, v]) => [k, String(v)])
+                )
+                : undefined,
+            },
+          ],
+        },
+      };
+    });
     setSelectedNodeId(id);
+    setSelectedNodeIds([id]);
+    dismissContextMenus();
   };
 
   const onDeleteNode = () => {
@@ -980,7 +1061,7 @@ const EditorApp = () => {
     }));
     setSelectedNodeIds([]);
     setSelectedNodeId(null);
-    setNodeContextMenu(null);
+    dismissContextMenus();
   };
   onDeleteNodeRef.current = onDeleteNode;
 
@@ -1093,13 +1174,13 @@ const EditorApp = () => {
     }));
     setConnectionHint(null);
     setPending(null);
-    setNodeContextMenu(null);
+    dismissContextMenus();
   };
   const onSetRootNode = (nodeId: string) => {
     const rootHint = getRootEligibilityHintKey(nodeTreeState.canSetAsRoot, nodeId);
     if (rootHint) {
       setConnectionHint(tr(rootHint));
-      setNodeContextMenu(null);
+      dismissContextMenus();
       return;
     }
     setDoc((prev) => ({
@@ -1116,10 +1197,7 @@ const EditorApp = () => {
     setSelectedNodeIds([nodeId]);
     setSelectedEdgeId(null);
     setConnectionHint(null);
-    setNodeContextMenu(null);
-  };
-  const toggleSection = (key: "node" | "edit" | "layout" | "canvasBuild") => {
-    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    dismissContextMenus();
   };
   const toggleInspectorPins = (key: "inputs" | "outputs") => {
     setCollapsedInspectorPins((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1189,7 +1267,7 @@ const EditorApp = () => {
     setConnectionHint(null);
     setPending(null);
     setSelectedEdgeId(null);
-    setNodeContextMenu(null);
+    dismissContextMenus();
   };
   onDeleteEdgeRef.current = () => {
     if (!selectedEdgeId) {
@@ -1434,7 +1512,7 @@ const EditorApp = () => {
           cancelDragRef.current();
           return;
         }
-        setNodeContextMenu(null);
+        dismissContextMenus();
         setPinTypeTooltip(null);
         setPending(null);
         setConnectionHint(null);
@@ -1496,14 +1574,12 @@ const EditorApp = () => {
     if (!from || !to) {
       return null;
     }
-    const fromAnchor = getPinAnchor("output", edge.fromNodeId, edge.fromPin);
-    const toAnchor = getPinAnchor("input", edge.toNodeId, edge.toPin);
-    const fromIdx = from.outputs.findIndex((p) => p.name === edge.fromPin);
-    const toIdx = to.inputs.findIndex((p) => p.name === edge.toPin);
-    const x1 = fromAnchor ? fromAnchor.x : (from.x + nodeWidth) * viewport.scale + viewport.x;
-    const y1 = fromAnchor ? fromAnchor.y : (from.y + getPinY(Math.max(0, fromIdx))) * viewport.scale + viewport.y;
-    const x2 = toAnchor ? toAnchor.x : to.x * viewport.scale + viewport.x;
-    const y2 = toAnchor ? toAnchor.y : (to.y + getPinY(Math.max(0, toIdx))) * viewport.scale + viewport.y;
+    const fromPt = getPinAnchorFromGeometry(from, "output", edge.fromPin);
+    const toPt = getPinAnchorFromGeometry(to, "input", edge.toPin);
+    const x1 = fromPt.x;
+    const y1 = fromPt.y;
+    const x2 = toPt.x;
+    const y2 = toPt.y;
     const dx = Math.max(80, Math.abs(x2 - x1) * 0.5);
     return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
   };
@@ -1515,23 +1591,23 @@ const EditorApp = () => {
     if (!from) {
       return null;
     }
-    const fromAnchor = getPinAnchor("output", pending.fromNodeId, pending.fromPin);
-    const fromIdx = from.outputs.findIndex((p) => p.name === pending.fromPin);
-    const x1 = fromAnchor ? fromAnchor.x : (from.x + nodeWidth) * viewport.scale + viewport.x;
-    const y1 = fromAnchor ? fromAnchor.y : (from.y + getPinY(Math.max(0, fromIdx))) * viewport.scale + viewport.y;
+    const fromPt = getPinAnchorFromGeometry(from, "output", pending.fromPin);
+    const x1 = fromPt.x;
+    const y1 = fromPt.y;
     const rect = canvasRef.current.getBoundingClientRect();
     let x2 = pendingCursor.clientX - rect.left;
     let y2 = pendingCursor.clientY - rect.top;
     if (hoveredInputPin) {
-      const targetAnchor = getPinAnchor("input", hoveredInputPin.nodeId, hoveredInputPin.pinName);
-      if (targetAnchor) {
-        x2 = targetAnchor.x;
-        y2 = targetAnchor.y;
+      const targetNode = selectedLookup.get(hoveredInputPin.nodeId);
+      if (targetNode) {
+        const p = getPinAnchorFromGeometry(targetNode, "input", hoveredInputPin.pinName);
+        x2 = p.x;
+        y2 = p.y;
       }
     }
     const dx = Math.max(80, Math.abs(x2 - x1) * 0.5);
     return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-  }, [pending, pendingCursor, hoveredInputPin, selectedLookup, viewport.scale, viewport.x, viewport.y]);
+  }, [pending, pendingCursor, hoveredInputPin, selectedLookup, viewport.scale, viewport.x, viewport.y, drag]);
 
   const issueNodeIds = useMemo(() => {
     const set = new Set<string>();
@@ -1571,146 +1647,6 @@ const EditorApp = () => {
   return (
     <App className="bp-root">
       <div className="bp-main">
-        <div className="bp-toolbox">
-          <div className="bp-toolbox-section">
-            <div className="bp-toolbox-header">
-              <Typography.Text className="bp-toolbox-title">Node</Typography.Text>
-              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("node")}>
-                {collapsedSections.node ? "Expand" : "Collapse"}
-              </Button>
-            </div>
-            {!collapsedSections.node ? (
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Select
-                  style={{ width: "100%" }}
-                  placeholder="Select node template"
-                  value={activeNodeDef || undefined}
-                  options={templateOptions}
-                  onChange={setActiveNodeDef}
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                />
-                <Select
-                  ref={nodeFinderRef as unknown as React.Ref<any>}
-                  style={{ width: "100%" }}
-                  placeholder="Find node (Ctrl/Cmd+F)"
-                  value={findNodeId || undefined}
-                  options={nodeSearchOptions}
-                  onChange={(v) => setFindNodeId(String(v))}
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                />
-                <Button block onClick={onFocusFoundNode} disabled={!findNodeId}>
-                  Focus Node
-                </Button>
-                <Button type="primary" block onClick={onAddNode}>
-                  Add Node
-                </Button>
-                <Button block onClick={onDeleteNode} disabled={selectedNodeIds.length === 0}>
-                  Delete Node
-                </Button>
-                <Button block onClick={() => selectedEdgeId && onDeleteEdge(selectedEdgeId)} disabled={!selectedEdgeId}>
-                  Delete Edge
-                </Button>
-              </Space>
-            ) : null}
-          </div>
-
-          <div className="bp-toolbox-section">
-            <div className="bp-toolbox-header">
-              <Typography.Text className="bp-toolbox-title">Edit</Typography.Text>
-              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("edit")}>
-                {collapsedSections.edit ? "Expand" : "Collapse"}
-              </Button>
-            </div>
-            {!collapsedSections.edit ? (
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Button block onClick={onUndo} disabled={historyState.index <= 0}>
-                  Undo
-                </Button>
-                <Button
-                  block
-                  onClick={onRedo}
-                  disabled={historyState.index < 0 || historyState.index >= historyState.length - 1}
-                >
-                  Redo
-                </Button>
-              </Space>
-            ) : null}
-          </div>
-
-          <div className="bp-toolbox-section">
-            <div className="bp-toolbox-header">
-              <Typography.Text className="bp-toolbox-title">Layout</Typography.Text>
-              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("layout")}>
-                {collapsedSections.layout ? "Expand" : "Collapse"}
-              </Button>
-            </div>
-            {!collapsedSections.layout ? (
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Button block onClick={() => onAlignSelection("left")} disabled={selectedNodeIds.length < 2}>
-                  Align Left
-                </Button>
-                <Button block onClick={() => onAlignSelection("right")} disabled={selectedNodeIds.length < 2}>
-                  Align Right
-                </Button>
-                <Button block onClick={() => onAlignSelection("top")} disabled={selectedNodeIds.length < 2}>
-                  Align Top
-                </Button>
-                <Button block onClick={() => onAlignSelection("bottom")} disabled={selectedNodeIds.length < 2}>
-                  Align Bottom
-                </Button>
-                <Button block onClick={() => onAlignSelection("h-distribute")} disabled={selectedNodeIds.length < 3}>
-                  Distribute H
-                </Button>
-                <Button block onClick={() => onAlignSelection("v-distribute")} disabled={selectedNodeIds.length < 3}>
-                  Distribute V
-                </Button>
-                <Button block onClick={onAutoLayout} disabled={doc.graph.nodes.length < 2}>
-                  Auto Layout
-                </Button>
-              </Space>
-            ) : null}
-          </div>
-
-          <div className="bp-toolbox-section">
-            <div className="bp-toolbox-header">
-              <Typography.Text className="bp-toolbox-title">Canvas & Build</Typography.Text>
-              <Button className="bp-collapse-btn" size="small" onClick={() => toggleSection("canvasBuild")}>
-                {collapsedSections.canvasBuild ? "Expand" : "Collapse"}
-              </Button>
-            </div>
-            {!collapsedSections.canvasBuild ? (
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Button block onClick={() => setViewport({ x: 0, y: 0, scale: 1 })}>
-                  Reset View
-                </Button>
-                <Button block onClick={() => vscodeApi.postMessage({ type: "requestSetting" })}>
-                  Reload Node Defs
-                </Button>
-                <Button block onClick={() => vscodeApi.postMessage({ type: "build" })}>
-                  Build
-                </Button>
-                <Button block onClick={() => setShowLegend((prev) => !prev)}>
-                  {showLegend ? tr("hideLegend") : tr("showLegend")}
-                </Button>
-                {pending ? (
-                  <Tag color="processing">
-                    Connecting from `{pending.fromNodeId}.{pending.fromPin}` (click an input pin)
-                  </Tag>
-                ) : (
-                  <Tag>Click output pin to start connection</Tag>
-                )}
-                {selectedNodeIds.length > 1 ? <Tag color="processing">Selected {selectedNodeIds.length}</Tag> : null}
-                {connectionHint ? <Tag color="error">{connectionHint}</Tag> : null}
-                <Tag>Zoom {Math.round(viewport.scale * 100)}%</Tag>
-                <Tag>Shortcuts: Del | Ctrl/Cmd+Z/Y | Ctrl/Cmd+A | Ctrl/Cmd+F | Ctrl/Cmd+0 | Esc</Tag>
-              </Space>
-            ) : null}
-          </div>
-        </div>
         <div className="bp-inspector">
           <div className="bp-inspector-version">
             <Typography.Text type="secondary">
@@ -1803,18 +1739,18 @@ const EditorApp = () => {
                   }
                 >
                   {!collapsedInspectorPins.outputs ? (
-                    <div className="bp-pin-grid">
+                    <div className="bp-pin-grid bp-pin-grid-outputs">
                       <div className="bp-pin-grid-head">Name</div>
                       <div className="bp-pin-grid-head">Type</div>
-                      <div className="bp-pin-grid-head">Default Value</div>
                       {selectedNode.outputs.length === 0 ? (
-                        <Typography.Text type="secondary">No output pins.</Typography.Text>
+                        <Typography.Text type="secondary" style={{ gridColumn: "1 / -1" }}>
+                          No output pins.
+                        </Typography.Text>
                       ) : (
                         selectedNode.outputs.map((pin) => (
                           <React.Fragment key={`${selectedNode.id}-inspector-output-${pin.name}`}>
                             <Input value={pin.name} readOnly />
                             <Input value={pin.type} readOnly />
-                            {renderDefaultValueEditor(selectedNode.id, pin)}
                           </React.Fragment>
                         ))
                       )}
@@ -1867,7 +1803,7 @@ const EditorApp = () => {
               target.classList.contains("bp-edges")
             ) {
               if (e.altKey || e.button === 1) {
-                setNodeContextMenu(null);
+                dismissContextMenus();
                 setPan({
                   startClientX: e.clientX,
                   startClientY: e.clientY,
@@ -1883,16 +1819,47 @@ const EditorApp = () => {
                 });
                 setSelectedNodeIds([]);
                 setSelectedNodeId(null);
-                setNodeContextMenu(null);
+                dismissContextMenus();
               }
             }
           }}
           onContextMenu={(e) => {
             e.preventDefault();
             const target = e.target as HTMLElement | null;
-            if (!target?.closest(".bp-node-context-menu")) {
-              setNodeContextMenu(null);
+            if (target?.closest(".bp-node-context-menu") || target?.closest(".bp-canvas-context-menu")) {
+              return;
             }
+            if (target?.closest(".bp-canvas-toolbar")) {
+              dismissContextMenus();
+              return;
+            }
+            if (target?.closest(".bp-canvas-legend")) {
+              dismissContextMenus();
+              return;
+            }
+            if (target?.closest(".bp-marquee")) {
+              return;
+            }
+            const onEmptyCanvas =
+              target?.classList.contains("bp-canvas") ||
+              target?.classList.contains("bp-edges") ||
+              Boolean(target?.closest("svg.bp-edges"));
+            if (!onEmptyCanvas) {
+              dismissContextMenus();
+              return;
+            }
+            if (!canvasRef.current) {
+              return;
+            }
+            const rect = canvasRef.current.getBoundingClientRect();
+            const world = clientToWorld(e.clientX, e.clientY);
+            setCanvasContextMenu({
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top,
+              worldX: world.x,
+              worldY: world.y,
+            });
+            setNodeContextMenu(null);
           }}
           onMouseMove={(e) => {
             if (!pending) {
@@ -1917,6 +1884,203 @@ const EditorApp = () => {
             setViewport({ x: nextX, y: nextY, scale: nextScale });
           }}
         >
+          <div
+            className="bp-canvas-toolbar"
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="bp-canvas-toolbar-rows">
+              <div className="bp-canvas-toolbar-row">
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Undo (Ctrl/Cmd+Z)"
+              aria-label="Undo"
+              disabled={historyState.index <= 0}
+              onClick={onUndo}
+            >
+              <IconUndo />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Redo (Ctrl/Cmd+Y)"
+              aria-label="Redo"
+              disabled={historyState.index < 0 || historyState.index >= historyState.length - 1}
+              onClick={onRedo}
+            >
+              <IconRedo />
+            </button>
+            <span className="bp-canvas-toolbar-sep" aria-hidden="true" />
+            <Select
+              size="small"
+              ref={nodeFinderRef as unknown as React.Ref<any>}
+              className="bp-canvas-toolbar-select"
+              classNames={{ popup: { root: "bp-canvas-toolbar-select-dropdown" } }}
+              placeholder="Find node (Ctrl/Cmd+F)"
+              value={findNodeId || undefined}
+              options={nodeSearchOptions}
+              onChange={(v) => setFindNodeId(String(v))}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+            />
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Focus selected node in list"
+              aria-label="Focus node"
+              disabled={!findNodeId}
+              onClick={onFocusFoundNode}
+            >
+              <IconFocusNode />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Delete selected nodes"
+              aria-label="Delete node"
+              disabled={selectedNodeIds.length === 0}
+              onClick={onDeleteNode}
+            >
+              <IconDeleteNode />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Delete selected edge"
+              aria-label="Delete edge"
+              disabled={!selectedEdgeId}
+              onClick={() => selectedEdgeId && onDeleteEdge(selectedEdgeId)}
+            >
+              <IconDeleteEdge />
+            </button>
+            <span className="bp-canvas-toolbar-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Reset view"
+              aria-label="Reset view"
+              onClick={() => setViewport({ x: 0, y: 0, scale: 1 })}
+            >
+              <IconResetView />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Reload node definitions"
+              aria-label="Reload node definitions"
+              onClick={() => vscodeApi.postMessage({ type: "requestSetting" })}
+            >
+              <IconReloadDefs />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Build"
+              aria-label="Build"
+              onClick={() => vscodeApi.postMessage({ type: "build" })}
+            >
+              <IconBuild />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title={showLegend ? tr("hideLegend") : tr("showLegend")}
+              aria-label={showLegend ? tr("hideLegend") : tr("showLegend")}
+              onClick={() => setShowLegend((prev) => !prev)}
+            >
+              <IconLegend />
+            </button>
+            <span className="bp-canvas-toolbar-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Align Left"
+              aria-label="Align Left"
+              disabled={selectedNodeIds.length < 2}
+              onClick={() => onAlignSelection("left")}
+            >
+              <IconAlignLeft />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Align Right"
+              aria-label="Align Right"
+              disabled={selectedNodeIds.length < 2}
+              onClick={() => onAlignSelection("right")}
+            >
+              <IconAlignRight />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Align Top"
+              aria-label="Align Top"
+              disabled={selectedNodeIds.length < 2}
+              onClick={() => onAlignSelection("top")}
+            >
+              <IconAlignTop />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Align Bottom"
+              aria-label="Align Bottom"
+              disabled={selectedNodeIds.length < 2}
+              onClick={() => onAlignSelection("bottom")}
+            >
+              <IconAlignBottom />
+            </button>
+            <span className="bp-canvas-toolbar-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Distribute Horizontally"
+              aria-label="Distribute Horizontally"
+              disabled={selectedNodeIds.length < 3}
+              onClick={() => onAlignSelection("h-distribute")}
+            >
+              <IconDistributeH />
+            </button>
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Distribute Vertically"
+              aria-label="Distribute Vertically"
+              disabled={selectedNodeIds.length < 3}
+              onClick={() => onAlignSelection("v-distribute")}
+            >
+              <IconDistributeV />
+            </button>
+            <span className="bp-canvas-toolbar-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className="bp-canvas-toolbar-btn"
+              title="Auto Layout"
+              aria-label="Auto Layout"
+              disabled={doc.graph.nodes.length < 2}
+              onClick={onAutoLayout}
+            >
+              <IconAutoLayout />
+            </button>
+              </div>
+              <div className="bp-canvas-toolbar-status">
+                {pending ? (
+                  <Tag color="processing">
+                    Connecting from `{pending.fromNodeId}.{pending.fromPin}` (click an input pin)
+                  </Tag>
+                ) : (
+                  <Tag>Click output pin to start connection</Tag>
+                )}
+                {selectedNodeIds.length > 1 ? <Tag color="processing">Selected {selectedNodeIds.length}</Tag> : null}
+                {connectionHint ? <Tag color="error">{connectionHint}</Tag> : null}
+                <Tag>Zoom {Math.round(viewport.scale * 100)}%</Tag>
+                <Tag className="bp-canvas-toolbar-status-kbd">Del | Ctrl/Cmd+Z/Y | Ctrl/Cmd+A | Ctrl/Cmd+F | Ctrl/Cmd+0 | Esc</Tag>
+              </div>
+            </div>
+          </div>
           <svg className="bp-edges">
             {doc.graph.edges.map((e) => {
               const d = edgePath(e);
@@ -1977,7 +2141,7 @@ const EditorApp = () => {
                   return;
                 }
                 e.stopPropagation();
-                setNodeContextMenu(null);
+                dismissContextMenus();
                 const target = e.target;
                 if (target instanceof Element && target.closest(".bp-pin")) {
                   return;
@@ -2036,6 +2200,7 @@ const EditorApp = () => {
                   return;
                 }
                 const rect = canvasRef.current.getBoundingClientRect();
+                setCanvasContextMenu(null);
                 setSelectedNodeId(node.id);
                 setSelectedNodeIds([node.id]);
                 setSelectedEdgeId(null);
@@ -2057,7 +2222,6 @@ const EditorApp = () => {
                     {node.inputs.map((pin) => (
                       <button
                         key={`${node.id}-in-${pin.name}`}
-                        ref={setPinButtonRef("input", node.id, pin.name)}
                         aria-label={getPinHoverTitle(pin)}
                         className={`bp-pin bp-pin-input ${invalidPinFlash?.direction === "input" &&
                           invalidPinFlash.nodeId === node.id &&
@@ -2109,7 +2273,6 @@ const EditorApp = () => {
                     {node.outputs.map((pin) => (
                       <button
                         key={`${node.id}-out-${pin.name}`}
-                        ref={setPinButtonRef("output", node.id, pin.name)}
                         aria-label={getPinHoverTitle(pin)}
                         className={`bp-pin bp-pin-output ${getPinTypeClassName(pin.type)}`}
                         onClick={(e) => {
@@ -2176,6 +2339,61 @@ const EditorApp = () => {
               >
                 {tr("setAsRootNode")}
               </button>
+            </div>
+          ) : null}
+          {canvasContextMenu ? (
+            <div
+              className="bp-canvas-context-menu"
+              style={{ left: canvasContextMenu.x, top: canvasContextMenu.y }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="bp-canvas-context-menu-title">Add node from template</div>
+              {templateOptions.length === 0 ? (
+                <div className="bp-canvas-context-menu-empty">No node templates loaded.</div>
+              ) : (
+                <>
+                  <Input
+                    ref={addNodeMenuSearchRef}
+                    size="small"
+                    allowClear
+                    placeholder="Search templates…"
+                    value={addNodeTemplateQuery}
+                    onChange={(e) => setAddNodeTemplateQuery(e.target.value)}
+                    className="bp-canvas-context-menu-search"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Escape") {
+                        e.stopPropagation();
+                      }
+                    }}
+                  />
+                  {filteredTemplateMenuGroups.length === 0 ? (
+                    <div className="bp-canvas-context-menu-empty">No matching templates.</div>
+                  ) : (
+                    filteredTemplateMenuGroups.map((group) => (
+                      <div key={group.label} className="bp-canvas-context-menu-group">
+                        <div className="bp-canvas-context-menu-group-label">{group.label}</div>
+                        {group.options.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            className="bp-canvas-context-menu-item"
+                            onClick={() =>
+                              addNodeFromTemplate(opt.value, {
+                                x: canvasContextMenu.worldX,
+                                y: canvasContextMenu.worldY,
+                              })
+                            }
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    ))
+                  )}
+                </>
+              )}
             </div>
           ) : null}
           {showLegend ? (
