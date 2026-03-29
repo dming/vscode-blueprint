@@ -1,0 +1,85 @@
+{
+  "formatVersion": 1,
+  "graph": {
+    "id": "main",
+    "name": "MultiRootWarningSample",
+    "nodes": [
+      {
+        "id": "start_a",
+        "title": "Event Start A",
+        "isRoot": true,
+        "x": 120,
+        "y": 120,
+        "inputs": [],
+        "outputs": [
+          { "name": "exec", "type": "exec" }
+        ]
+      },
+      {
+        "id": "start_b",
+        "title": "Event Start B",
+        "isRoot": true,
+        "x": 120,
+        "y": 320,
+        "inputs": [],
+        "outputs": [
+          { "name": "exec", "type": "exec" }
+        ]
+      },
+      {
+        "id": "print_a",
+        "title": "Print",
+        "isRoot": false,
+        "x": 420,
+        "y": 120,
+        "inputs": [
+          { "name": "exec", "type": "exec" },
+          { "name": "text", "type": "string" }
+        ],
+        "outputs": [
+          { "name": "exec", "type": "exec" }
+        ],
+        "values": {
+          "text": "Start A path"
+        }
+      },
+      {
+        "id": "print_b",
+        "title": "Print",
+        "isRoot": false,
+        "x": 420,
+        "y": 320,
+        "inputs": [
+          { "name": "exec", "type": "exec" },
+          { "name": "text", "type": "string" }
+        ],
+        "outputs": [
+          { "name": "exec", "type": "exec" }
+        ],
+        "values": {
+          "text": "Start B path"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-start_a-print_a",
+        "fromNodeId": "start_a",
+        "fromPin": "exec",
+        "toNodeId": "print_a",
+        "toPin": "exec"
+      },
+      {
+        "id": "e-start_b-print_b",
+        "fromNodeId": "start_b",
+        "fromPin": "exec",
+        "toNodeId": "print_b",
+        "toPin": "exec"
+      }
+    ],
+    "variables": []
+  },
+  "metadata": {
+    "note": "Sample intended to trigger multi-root warning and extra-root highlight."
+  }
+}

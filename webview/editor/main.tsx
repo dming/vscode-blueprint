@@ -1,6 +1,9 @@
 import { App, Button, Card, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
+import { getRootEligibilityHintKey, validateConnectionHintKey } from "./graph-validation";
+import { computeNodeTreeState } from "./graph-tree-state";
+import { resolveUiLocale, translateUiText, type UiTextKey } from "./ui-text";
 import * as vscodeApi from "./vscodeApi";
 import "./style.scss";
 
@@ -39,6 +42,7 @@ type BuildIssue = {
   message: string;
   level: "error" | "warning";
   nodeId?: string;
+  nodeIds?: string[];
   edgeId?: string;
 };
 type NodeDefPin = { name: string; type: string };
@@ -50,6 +54,15 @@ type NodeDef = {
   inputs?: NodeDefPin[];
   outputs?: NodeDefPin[];
   defaults?: Record<string, string | number | boolean>;
+};
+
+const UI_LOCALE = resolveUiLocale();
+
+const tr = (
+  key: UiTextKey,
+  params?: Record<string, string | number>
+): string => {
+  return translateUiText(key, UI_LOCALE, params);
 };
 
 const createDefaultDocument = (): BlueprintDocument => ({
@@ -200,6 +213,20 @@ const getPinY = (idx: number) => titleHeight + 24 + idx * pinRowHeight + pinRowH
 const getNodeHeight = (node: BlueprintNode) =>
   titleHeight + 24 + Math.max(node.inputs.length, node.outputs.length) * pinRowHeight + 24;
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+const PIN_ANCHOR_OFFSET = 6;
+const getPinHoverTitle = (pin: Pin): string => `${pin.name} (${pin.type})`;
+
+type PinTypeTooltipState = { text: string; left: number; top: number };
+const getPinButtonKey = (
+  direction: "input" | "output",
+  nodeId: string,
+  pinName: string
+): string => `${direction}::${nodeId}::${pinName}`;
+const getPinTypeClassName = (type: string): string => {
+  const t = type.trim().toLowerCase();
+  if (!t) return "bp-pin-type-unknown";
+  return `bp-pin-type-${t.replace(/[^a-z0-9_-]/g, "-")}`;
+};
 const getTargetDebugName = (target: EventTarget | null): string => {
   if (!(target instanceof HTMLElement)) {
     return "unknown";
@@ -330,38 +357,24 @@ const validateConnection = (
   toNodeId: string,
   toPinName: string
 ): string | null => {
-  const fromNode = doc.graph.nodes.find((n) => n.id === pending.fromNodeId);
-  const toNode = doc.graph.nodes.find((n) => n.id === toNodeId);
-  if (!fromNode || !toNode) {
-    return "Source or target node does not exist.";
+  const hintKey = validateConnectionHintKey(doc, pending, toNodeId, toPinName);
+  if (!hintKey) {
+    return null;
   }
-  const outPin = findOutputPin(fromNode, pending.fromPin);
-  const inPin = findInputPin(toNode, toPinName);
-  if (!outPin || !inPin) {
-    return "Source or target pin does not exist.";
+  if (hintKey === "connectionPinTypeMismatch") {
+    const fromNode = doc.graph.nodes.find((n) => n.id === pending.fromNodeId);
+    const toNode = doc.graph.nodes.find((n) => n.id === toNodeId);
+    const outPin = findOutputPin(fromNode, pending.fromPin);
+    const inPin = findInputPin(toNode, toPinName);
+    return tr(hintKey, {
+      from: outPin?.type ?? "?",
+      to: inPin?.type ?? "?",
+    });
   }
-  if (outPin.type !== inPin.type) {
-    return `Pin type mismatch: ${outPin.type} -> ${inPin.type}.`;
+  if (hintKey === "connectionExecInputAlreadyConnected") {
+    return tr(hintKey, { nodeId: toNodeId, pinName: toPinName });
   }
-  if (
-    doc.graph.edges.some(
-      (e) =>
-        e.fromNodeId === pending.fromNodeId &&
-        e.fromPin === pending.fromPin &&
-        e.toNodeId === toNodeId &&
-        e.toPin === toPinName
-    )
-  ) {
-    return "Connection already exists.";
-  }
-  // Blueprint rule (MVP): exec input pin has at most one incoming edge.
-  if (
-    inPin.type === "exec" &&
-    doc.graph.edges.some((e) => e.toNodeId === toNodeId && e.toPin === toPinName)
-  ) {
-    return `Exec input '${toNodeId}.${toPinName}' already has an incoming edge.`;
-  }
-  return null;
+  return tr(hintKey);
 };
 
 const EditorApp = () => {
@@ -406,6 +419,8 @@ const EditorApp = () => {
     inputs: false,
     outputs: false,
   });
+  const [showLegend, setShowLegend] = useState(true);
+  const [pinTypeTooltip, setPinTypeTooltip] = useState<PinTypeTooltipState | null>(null);
   const clearFocusTimerRef = useRef<number | null>(null);
   const invalidPinTimerRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -428,10 +443,58 @@ const EditorApp = () => {
   const inspectorFormRef = useRef<HTMLDivElement | null>(null);
   const nodeFinderRef = useRef<{ focus?: () => void } | null>(null);
   const inspectorEditingRef = useRef(false);
+  const pinButtonRefsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
   const inspectorFormSyncRef = useRef<{
     id: string;
     description: string;
   } | null>(null);
+  const setPinButtonRef = (
+    direction: "input" | "output",
+    nodeId: string,
+    pinName: string
+  ) => (el: HTMLButtonElement | null) => {
+      const key = getPinButtonKey(direction, nodeId, pinName);
+      if (el) {
+        pinButtonRefsRef.current.set(key, el);
+      } else {
+        pinButtonRefsRef.current.delete(key);
+      }
+    };
+  const getPinAnchor = (
+    direction: "input" | "output",
+    nodeId: string,
+    pinName: string
+  ): { x: number; y: number } | null => {
+    if (!canvasRef.current) {
+      return null;
+    }
+    const key = getPinButtonKey(direction, nodeId, pinName);
+    const el = pinButtonRefsRef.current.get(key);
+    if (!el) {
+      return null;
+    }
+    const pinRect = el.getBoundingClientRect();
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    return {
+      x:
+        direction === "input"
+          ? pinRect.left - canvasRect.left + PIN_ANCHOR_OFFSET
+          : pinRect.right - canvasRect.left - PIN_ANCHOR_OFFSET,
+      y: pinRect.top - canvasRect.top + pinRect.height / 2,
+    };
+  };
+
+  const updatePinTypeTooltip = (pin: Pin, e: React.MouseEvent) => {
+    if (!canvasRef.current) {
+      return;
+    }
+    const rect = canvasRef.current.getBoundingClientRect();
+    setPinTypeTooltip({
+      text: getPinHoverTitle(pin),
+      left: e.clientX - rect.left + 10,
+      top: e.clientY - rect.top - 28,
+    });
+  };
 
   const selectedNode = useMemo(
     () => doc.graph.nodes.find((n) => n.id === selectedNodeId) ?? null,
@@ -482,134 +545,10 @@ const EditorApp = () => {
     }
     return map;
   }, [doc.graph.edges]);
-  const nodeOrderIndex = useMemo(() => {
-    const map = new Map<string, number>();
-    doc.graph.nodes.forEach((n, idx) => map.set(n.id, idx));
-    return map;
-  }, [doc.graph.nodes]);
-  const nodeTreeState = useMemo(() => {
-    const allNodeIds = doc.graph.nodes.map((n) => n.id);
-    const rootId = doc.graph.nodes.find((n) => n.isRoot)?.id ?? null;
-    const undirected = new Map<string, Set<string>>();
-    const directedOut = new Map<string, Set<string>>();
-    for (const id of allNodeIds) {
-      undirected.set(id, new Set<string>());
-      directedOut.set(id, new Set<string>());
-    }
-    for (const e of doc.graph.edges) {
-      if (!undirected.has(e.fromNodeId) || !undirected.has(e.toNodeId)) {
-        continue;
-      }
-      undirected.get(e.fromNodeId)!.add(e.toNodeId);
-      undirected.get(e.toNodeId)!.add(e.fromNodeId);
-      directedOut.get(e.fromNodeId)!.add(e.toNodeId);
-    }
-    const sortIds = (a: string, b: string) =>
-      (nodeOrderIndex.get(a) ?? Number.MAX_SAFE_INTEGER) -
-        (nodeOrderIndex.get(b) ?? Number.MAX_SAFE_INTEGER) || a.localeCompare(b);
-
-    const components: string[][] = [];
-    const componentIndexByNode = new Map<string, number>();
-    const seen = new Set<string>();
-    for (const id of allNodeIds) {
-      if (seen.has(id)) {
-        continue;
-      }
-      const queue = [id];
-      seen.add(id);
-      const component: string[] = [];
-      while (queue.length > 0) {
-        const cur = queue.shift()!;
-        component.push(cur);
-        const neighbors = Array.from(undirected.get(cur) ?? []).sort(sortIds);
-        for (const next of neighbors) {
-          if (!seen.has(next)) {
-            seen.add(next);
-            queue.push(next);
-          }
-        }
-      }
-      component.sort(sortIds);
-      const compIndex = components.length;
-      for (const nodeId of component) {
-        componentIndexByNode.set(nodeId, compIndex);
-      }
-      components.push(component);
-    }
-
-    const incomingInComponent = new Map<string, number>();
-    for (const id of allNodeIds) {
-      incomingInComponent.set(id, 0);
-    }
-    for (const e of doc.graph.edges) {
-      const fromComp = componentIndexByNode.get(e.fromNodeId);
-      const toComp = componentIndexByNode.get(e.toNodeId);
-      if (fromComp === undefined || toComp === undefined || fromComp !== toComp) {
-        continue;
-      }
-      incomingInComponent.set(e.toNodeId, (incomingInComponent.get(e.toNodeId) ?? 0) + 1);
-    }
-    const canSetAsRoot = new Set<string>(
-      allNodeIds.filter((id) => (incomingInComponent.get(id) ?? 0) === 0)
-    );
-
-    const legalNodes = new Set<string>();
-    if (rootId) {
-      const legalComponent = components.find((comp) => comp.includes(rootId));
-      if (legalComponent) {
-        for (const id of legalComponent) {
-          legalNodes.add(id);
-        }
-      }
-    }
-    const illegalNodes = new Set<string>(
-      allNodeIds.filter((id) => id !== rootId && !legalNodes.has(id))
-    );
-
-    const numberById = new Map<string, number>();
-    let nextNumber = 1;
-    if (rootId) {
-      numberById.set(rootId, 0);
-      const visitQueue = [rootId];
-      const visited = new Set<string>([rootId]);
-      while (visitQueue.length > 0) {
-        const cur = visitQueue.shift()!;
-        const outs = Array.from(directedOut.get(cur) ?? []).sort(sortIds);
-        for (const next of outs) {
-          if (!legalNodes.has(next) || visited.has(next)) {
-            continue;
-          }
-          visited.add(next);
-          numberById.set(next, nextNumber++);
-          visitQueue.push(next);
-        }
-      }
-      for (const id of Array.from(legalNodes).sort(sortIds)) {
-        if (id !== rootId && !numberById.has(id)) {
-          numberById.set(id, nextNumber++);
-        }
-      }
-    }
-    for (const comp of components) {
-      const isLegalComp = !!rootId && comp.includes(rootId);
-      if (isLegalComp) {
-        continue;
-      }
-      for (const id of comp.sort(sortIds)) {
-        if (!numberById.has(id)) {
-          numberById.set(id, nextNumber++);
-        }
-      }
-    }
-
-    return {
-      rootId,
-      legalNodes,
-      illegalNodes,
-      canSetAsRoot,
-      numberById,
-    };
-  }, [doc.graph.nodes, doc.graph.edges, nodeOrderIndex]);
+  const nodeTreeState = useMemo(
+    () => computeNodeTreeState(doc.graph.nodes, doc.graph.edges),
+    [doc.graph.nodes, doc.graph.edges]
+  );
   const clientToWorld = (clientX: number, clientY: number) => {
     if (!canvasRef.current) {
       return { x: 0, y: 0 };
@@ -1157,8 +1096,9 @@ const EditorApp = () => {
     setNodeContextMenu(null);
   };
   const onSetRootNode = (nodeId: string) => {
-    if (!nodeTreeState.canSetAsRoot.has(nodeId)) {
-      setConnectionHint("Only a tree root node (without incoming links) can be set as root.");
+    const rootHint = getRootEligibilityHintKey(nodeTreeState.canSetAsRoot, nodeId);
+    if (rootHint) {
+      setConnectionHint(tr(rootHint));
       setNodeContextMenu(null);
       return;
     }
@@ -1495,6 +1435,7 @@ const EditorApp = () => {
           return;
         }
         setNodeContextMenu(null);
+        setPinTypeTooltip(null);
         setPending(null);
         setConnectionHint(null);
         setSelectedNodeIds([]);
@@ -1515,6 +1456,11 @@ const EditorApp = () => {
       setSelectedNodeId(issue.nodeId);
       setSelectedNodeIds([issue.nodeId]);
       nodeToCenter = selectedLookup.get(issue.nodeId) ?? null;
+    } else if (issue.nodeIds && issue.nodeIds.length > 0) {
+      const first = issue.nodeIds[0];
+      setSelectedNodeId(first);
+      setSelectedNodeIds([first]);
+      nodeToCenter = selectedLookup.get(first) ?? null;
     } else if (issue.edgeId) {
       const edge = edgeLookup.get(issue.edgeId);
       if (edge) {
@@ -1550,12 +1496,14 @@ const EditorApp = () => {
     if (!from || !to) {
       return null;
     }
+    const fromAnchor = getPinAnchor("output", edge.fromNodeId, edge.fromPin);
+    const toAnchor = getPinAnchor("input", edge.toNodeId, edge.toPin);
     const fromIdx = from.outputs.findIndex((p) => p.name === edge.fromPin);
     const toIdx = to.inputs.findIndex((p) => p.name === edge.toPin);
-    const x1 = (from.x + nodeWidth) * viewport.scale + viewport.x;
-    const y1 = (from.y + getPinY(Math.max(0, fromIdx))) * viewport.scale + viewport.y;
-    const x2 = to.x * viewport.scale + viewport.x;
-    const y2 = (to.y + getPinY(Math.max(0, toIdx))) * viewport.scale + viewport.y;
+    const x1 = fromAnchor ? fromAnchor.x : (from.x + nodeWidth) * viewport.scale + viewport.x;
+    const y1 = fromAnchor ? fromAnchor.y : (from.y + getPinY(Math.max(0, fromIdx))) * viewport.scale + viewport.y;
+    const x2 = toAnchor ? toAnchor.x : to.x * viewport.scale + viewport.x;
+    const y2 = toAnchor ? toAnchor.y : (to.y + getPinY(Math.max(0, toIdx))) * viewport.scale + viewport.y;
     const dx = Math.max(80, Math.abs(x2 - x1) * 0.5);
     return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
   };
@@ -1567,18 +1515,18 @@ const EditorApp = () => {
     if (!from) {
       return null;
     }
+    const fromAnchor = getPinAnchor("output", pending.fromNodeId, pending.fromPin);
     const fromIdx = from.outputs.findIndex((p) => p.name === pending.fromPin);
-    const x1 = (from.x + nodeWidth) * viewport.scale + viewport.x;
-    const y1 = (from.y + getPinY(Math.max(0, fromIdx))) * viewport.scale + viewport.y;
+    const x1 = fromAnchor ? fromAnchor.x : (from.x + nodeWidth) * viewport.scale + viewport.x;
+    const y1 = fromAnchor ? fromAnchor.y : (from.y + getPinY(Math.max(0, fromIdx))) * viewport.scale + viewport.y;
     const rect = canvasRef.current.getBoundingClientRect();
     let x2 = pendingCursor.clientX - rect.left;
     let y2 = pendingCursor.clientY - rect.top;
     if (hoveredInputPin) {
-      const targetNode = selectedLookup.get(hoveredInputPin.nodeId);
-      if (targetNode) {
-        const targetPinIdx = targetNode.inputs.findIndex((p) => p.name === hoveredInputPin.pinName);
-        x2 = targetNode.x * viewport.scale + viewport.x;
-        y2 = (targetNode.y + getPinY(Math.max(0, targetPinIdx))) * viewport.scale + viewport.y;
+      const targetAnchor = getPinAnchor("input", hoveredInputPin.nodeId, hoveredInputPin.pinName);
+      if (targetAnchor) {
+        x2 = targetAnchor.x;
+        y2 = targetAnchor.y;
       }
     }
     const dx = Math.max(80, Math.abs(x2 - x1) * 0.5);
@@ -1590,6 +1538,21 @@ const EditorApp = () => {
     for (const issue of buildIssues) {
       if (issue.nodeId) {
         set.add(issue.nodeId);
+      }
+      for (const nodeId of issue.nodeIds ?? []) {
+        set.add(nodeId);
+      }
+    }
+    return set;
+  }, [buildIssues]);
+  const extraRootNodeIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const issue of buildIssues) {
+      if (!issue.nodeIds || issue.nodeIds.length <= 1) {
+        continue;
+      }
+      for (const nodeId of issue.nodeIds.slice(1)) {
+        set.add(nodeId);
       }
     }
     return set;
@@ -1729,6 +1692,9 @@ const EditorApp = () => {
                 </Button>
                 <Button block onClick={() => vscodeApi.postMessage({ type: "build" })}>
                   Build
+                </Button>
+                <Button block onClick={() => setShowLegend((prev) => !prev)}>
+                  {showLegend ? tr("hideLegend") : tr("showLegend")}
                 </Button>
                 {pending ? (
                   <Tag color="processing">
@@ -1990,6 +1956,7 @@ const EditorApp = () => {
                 } ${selectedNodeId === node.id || selectedNodeIds.includes(node.id) ? "bp-node-selected" : ""
                 } ${selectedNodeId === node.id ? "bp-node-selected-primary" : ""
                 } ${issueNodeIds.has(node.id) ? "bp-node-issue" : ""
+                } ${extraRootNodeIds.has(node.id) ? "bp-node-extra-root-warning" : ""
                 } ${drag?.nodeIds.includes(node.id) ? "bp-node-dragging" : ""
                 }`}
               style={{
@@ -2090,6 +2057,8 @@ const EditorApp = () => {
                     {node.inputs.map((pin) => (
                       <button
                         key={`${node.id}-in-${pin.name}`}
+                        ref={setPinButtonRef("input", node.id, pin.name)}
+                        aria-label={getPinHoverTitle(pin)}
                         className={`bp-pin bp-pin-input ${invalidPinFlash?.direction === "input" &&
                           invalidPinFlash.nodeId === node.id &&
                           invalidPinFlash.pinName === pin.name
@@ -2099,7 +2068,7 @@ const EditorApp = () => {
                               ? "bp-pin-connectable"
                               : "bp-pin-unconnectable"
                             : ""
-                          }`}
+                          } ${getPinTypeClassName(pin.type)}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           onInputPinClick(node.id, pin.name);
@@ -2110,7 +2079,8 @@ const EditorApp = () => {
                         onPointerDown={(e) => {
                           e.stopPropagation();
                         }}
-                        onMouseEnter={() => {
+                        onMouseEnter={(e) => {
+                          updatePinTypeTooltip(pin, e);
                           if (!pending) {
                             return;
                           }
@@ -2121,7 +2091,11 @@ const EditorApp = () => {
                             canConnect: !reason,
                           });
                         }}
+                        onMouseMove={(e) => {
+                          updatePinTypeTooltip(pin, e);
+                        }}
                         onMouseLeave={() => {
+                          setPinTypeTooltip(null);
                           setHoveredInputPin((prev) =>
                             prev && prev.nodeId === node.id && prev.pinName === pin.name ? null : prev
                           );
@@ -2135,7 +2109,9 @@ const EditorApp = () => {
                     {node.outputs.map((pin) => (
                       <button
                         key={`${node.id}-out-${pin.name}`}
-                        className="bp-pin bp-pin-output"
+                        ref={setPinButtonRef("output", node.id, pin.name)}
+                        aria-label={getPinHoverTitle(pin)}
+                        className={`bp-pin bp-pin-output ${getPinTypeClassName(pin.type)}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           onOutputPinClick(node.id, pin.name, {
@@ -2149,6 +2125,15 @@ const EditorApp = () => {
                         onPointerDown={(e) => {
                           e.stopPropagation();
                         }}
+                        onMouseEnter={(e) => {
+                          updatePinTypeTooltip(pin, e);
+                        }}
+                        onMouseMove={(e) => {
+                          updatePinTypeTooltip(pin, e);
+                        }}
+                        onMouseLeave={() => {
+                          setPinTypeTooltip(null);
+                        }}
                       >
                         {pin.name}
                       </button>
@@ -2158,6 +2143,14 @@ const EditorApp = () => {
               </div>
             </Card>
           ))}
+          {pinTypeTooltip ? (
+            <div
+              className="bp-pin-type-tooltip"
+              style={{ left: pinTypeTooltip.left, top: pinTypeTooltip.top }}
+            >
+              {pinTypeTooltip.text}
+            </div>
+          ) : null}
           {marquee && canvasRef.current ? (
             <div
               className="bp-marquee"
@@ -2181,8 +2174,25 @@ const EditorApp = () => {
                 disabled={!nodeTreeState.canSetAsRoot.has(nodeContextMenu.nodeId)}
                 onClick={() => onSetRootNode(nodeContextMenu.nodeId)}
               >
-                Set As Root Node
+                {tr("setAsRootNode")}
               </button>
+            </div>
+          ) : null}
+          {showLegend ? (
+            <div className="bp-canvas-legend">
+              <div className="bp-canvas-legend-title">{tr("legendTitle")}</div>
+              <div className="bp-canvas-legend-item">
+                <span className="bp-canvas-legend-swatch bp-canvas-legend-swatch-root" />
+                <span>{tr("legendRoot")}</span>
+              </div>
+              <div className="bp-canvas-legend-item">
+                <span className="bp-canvas-legend-swatch bp-canvas-legend-swatch-legal" />
+                <span>{tr("legendLegal")}</span>
+              </div>
+              <div className="bp-canvas-legend-item">
+                <span className="bp-canvas-legend-swatch bp-canvas-legend-swatch-illegal" />
+                <span>{tr("legendIllegal")}</span>
+              </div>
             </div>
           ) : null}
         </div>

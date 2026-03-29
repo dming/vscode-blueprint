@@ -60,6 +60,7 @@ export type HostToEditorMessage =
         message: string;
         level: "error" | "warning";
         nodeId?: string;
+        nodeIds?: string[];
         edgeId?: string;
       }>;
     };

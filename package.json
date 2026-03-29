@@ -2,7 +2,7 @@
   "name": "vscode-blueprint-editor",
   "displayName": "Blueprint Editor",
   "description": "Visual blueprint graph editor for game workflows",
-  "version": "2.0.1-21",
+  "version": "2.0.1-27",
   "publisher": "dming",
   "repository": {
     "type": "git",
@@ -116,6 +116,11 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js && vite build",
     "build:dev": "node esbuild.js --dev && vite build --mode development",
+    "verify:local": "npm run test:all && npm run build",
+    "test:all": "npm run test:build-validation && npm run test:editor-regression",
+    "test:build-validation": "vitest --root . run src/build/validateBlueprintDocument.test.ts",
+    "test:graph-state": "vitest run webview/editor/graph-tree-state.test.ts",
+    "test:editor-regression": "vitest run webview/editor/graph-tree-state.test.ts webview/editor/graph-validation.test.ts",
     "watch:ext": "node esbuild.js --watch",
     "watch:webview": "vite build --watch --mode development",
     "dev": "npm run watch:webview",
@@ -132,7 +137,8 @@
     "esbuild": "^0.24.0",
     "prettier": "^3.8.1",
     "sass": "^1.77.8",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "antd": "^6.3.4",
