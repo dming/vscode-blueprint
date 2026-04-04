@@ -1,25 +1,16 @@
-export type BlueprintPin = { name: string; type: string };
-export type BlueprintNode = {
-  id: string;
-  title?: string;
-  isRoot?: boolean;
-  inputs?: BlueprintPin[];
-  outputs?: BlueprintPin[];
-};
-export type BlueprintEdge = {
-  id: string;
-  fromNodeId: string;
-  fromPin: string;
-  toNodeId: string;
-  toPin: string;
-};
-export type BlueprintDocument = {
-  formatVersion?: number;
-  graph?: {
-    nodes?: BlueprintNode[];
-    edges?: BlueprintEdge[];
-  };
-};
+import {
+  type BlueprintEdge,
+  type BlueprintNode,
+  type BlueprintVariable,
+  normalizeBlueprintDocumentValue,
+  TEMPLATE_FUNCTION_ENTRY,
+  TEMPLATE_FUNCTION_RETURN,
+  TEMPLATE_INVOKE_FUNCTION,
+} from "../blueprint/documentModel";
+
+export type { BlueprintVariable } from "../blueprint/documentModel";
+
+export type BlueprintDocument = Record<string, unknown>;
 
 export type BuildIssue = {
   file: string;
@@ -30,27 +21,50 @@ export type BuildIssue = {
   edgeId?: string;
 };
 
-export function validateBlueprintDocument(doc: BlueprintDocument, relPath: string): BuildIssue[] {
-  const issues: BuildIssue[] = [];
-  if (!doc.graph || !Array.isArray(doc.graph.nodes) || !Array.isArray(doc.graph.edges)) {
-    issues.push({
-      file: relPath,
-      level: "error",
-      message: "Invalid blueprint shape: expected graph.nodes and graph.edges arrays.",
-    });
-    return issues;
+function validateVariables(
+  variables: BlueprintVariable[],
+  relPath: string,
+  issues: BuildIssue[],
+  scopeLabel?: string
+): void {
+  const seen = new Set<string>();
+  const scope = scopeLabel ? `${scopeLabel} ` : "";
+  for (let vi = 0; vi < variables.length; vi++) {
+    const v = variables[vi];
+    if (!v || typeof v.name !== "string" || !v.name.trim() || typeof v.type !== "string" || !v.type.trim()) {
+      issues.push({
+        file: relPath,
+        level: "error",
+        message: `${scope}variables[${vi}] must have non-empty name and type strings.`,
+      });
+      continue;
+    }
+    if (seen.has(v.name)) {
+      issues.push({
+        file: relPath,
+        level: "warning",
+        message: `${scope}Duplicate blueprint variable name '${v.name}'.`,
+      });
+    }
+    seen.add(v.name);
   }
+}
 
-  const nodes = doc.graph.nodes;
-  const edges = doc.graph.edges;
+function validateGraphInternals(
+  nodes: BlueprintNode[],
+  edges: BlueprintEdge[],
+  relPath: string,
+  issues: BuildIssue[],
+  messagePrefix?: string
+): void {
+  const pre = messagePrefix ? `${messagePrefix} ` : "";
   const nodeMap = new Map<string, BlueprintNode>();
-  const rootNodeIds: string[] = [];
   for (const node of nodes) {
     if (!node || typeof node.id !== "string" || node.id.trim() === "") {
       issues.push({
         file: relPath,
         level: "error",
-        message: "Node id must be a non-empty string.",
+        message: `${pre}Node id must be a non-empty string.`,
       });
       continue;
     }
@@ -59,14 +73,11 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
         file: relPath,
         level: "error",
         nodeId: node.id,
-        message: `Duplicate node id '${node.id}'.`,
+        message: `${pre}Duplicate node id '${node.id}'.`,
       });
       continue;
     }
     nodeMap.set(node.id, node);
-    if (node.isRoot === true) {
-      rootNodeIds.push(node.id);
-    }
 
     const pinSeen = new Set<string>();
     for (const pin of node.inputs ?? []) {
@@ -75,7 +86,7 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
           file: relPath,
           level: "error",
           nodeId: node.id,
-          message: `Node '${node.id}' has invalid input pin.`,
+          message: `${pre}Node '${node.id}' has invalid input pin.`,
         });
         continue;
       }
@@ -85,7 +96,7 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
           file: relPath,
           level: "error",
           nodeId: node.id,
-          message: `Node '${node.id}' has duplicate input pin '${pin.name}'.`,
+          message: `${pre}Node '${node.id}' has duplicate input pin '${pin.name}'.`,
         });
       } else {
         pinSeen.add(key);
@@ -97,7 +108,7 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
           file: relPath,
           level: "error",
           nodeId: node.id,
-          message: `Node '${node.id}' has invalid output pin.`,
+          message: `${pre}Node '${node.id}' has invalid output pin.`,
         });
         continue;
       }
@@ -107,25 +118,12 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
           file: relPath,
           level: "error",
           nodeId: node.id,
-          message: `Node '${node.id}' has duplicate output pin '${pin.name}'.`,
+          message: `${pre}Node '${node.id}' has duplicate output pin '${pin.name}'.`,
         });
       } else {
         pinSeen.add(key);
       }
     }
-  }
-  if (rootNodeIds.length > 1) {
-    const firstRoot = rootNodeIds[0];
-    issues.push({
-      file: relPath,
-      level: "warning",
-      nodeId: firstRoot,
-      nodeIds: rootNodeIds,
-      message:
-        `Multiple nodes are marked as root (${rootNodeIds.join(", ")}). ` +
-        `Editor currently uses the first root '${firstRoot}'. ` +
-        `多个节点被标记为 Root（${rootNodeIds.join("、")}），编辑器当前将使用第一个 Root '${firstRoot}'。`,
-    });
   }
 
   const execInputIncoming = new Set<string>();
@@ -134,7 +132,7 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
       issues.push({
         file: relPath,
         level: "error",
-        message: "Edge id must be a non-empty string.",
+        message: `${pre}Edge id must be a non-empty string.`,
       });
       continue;
     }
@@ -145,7 +143,7 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
         file: relPath,
         level: "error",
         edgeId: edge.id,
-        message: `Edge '${edge.id}' references missing node(s): '${edge.fromNodeId}' -> '${edge.toNodeId}'.`,
+        message: `${pre}Edge '${edge.id}' references missing node(s): '${edge.fromNodeId}' -> '${edge.toNodeId}'.`,
       });
       continue;
     }
@@ -156,7 +154,7 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
         file: relPath,
         level: "error",
         edgeId: edge.id,
-        message: `Edge '${edge.id}' references missing pin(s).`,
+        message: `${pre}Edge '${edge.id}' references missing pin(s).`,
       });
       continue;
     }
@@ -165,7 +163,7 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
         file: relPath,
         level: "error",
         edgeId: edge.id,
-        message: `Edge '${edge.id}' pin type mismatch: ${edge.fromNodeId}.${edge.fromPin}(${outPin.type}) -> ${edge.toNodeId}.${edge.toPin}(${inPin.type}).`,
+        message: `${pre}Edge '${edge.id}' pin type mismatch: ${edge.fromNodeId}.${edge.fromPin}(${outPin.type}) -> ${edge.toNodeId}.${edge.toPin}(${inPin.type}).`,
       });
     }
     if (inPin.type === "exec") {
@@ -176,12 +174,134 @@ export function validateBlueprintDocument(doc: BlueprintDocument, relPath: strin
           level: "error",
           edgeId: edge.id,
           nodeId: edge.toNodeId,
-          message: `Exec input '${edge.toNodeId}.${edge.toPin}' has multiple incoming edges.`,
+          message: `${pre}Exec input '${edge.toNodeId}.${edge.toPin}' has multiple incoming edges.`,
         });
       } else {
         execInputIncoming.add(key);
       }
     }
+  }
+}
+
+function validateInvokeNodes(
+  nodes: BlueprintNode[],
+  relPath: string,
+  issues: BuildIssue[],
+  messagePrefix: string | undefined,
+  callableFunctionIds: Set<string>
+): void {
+  const pre = messagePrefix ? `${messagePrefix} ` : "";
+  for (const n of nodes) {
+    if (n.template !== TEMPLATE_INVOKE_FUNCTION) {
+      continue;
+    }
+    const fid = (n.values?.functionId ?? "").trim();
+    if (!fid) {
+      issues.push({
+        file: relPath,
+        level: "warning",
+        nodeId: n.id,
+        message: `${pre}Invoke node '${n.id}' has no target function selected.`,
+      });
+      continue;
+    }
+    if (!callableFunctionIds.has(fid)) {
+      issues.push({
+        file: relPath,
+        level: "error",
+        nodeId: n.id,
+        message: `${pre}Invoke node '${n.id}' references unknown function '${fid}'.`,
+      });
+    }
+  }
+}
+
+function validateFunctionEntryReturn(
+  nodes: BlueprintNode[],
+  relPath: string,
+  issues: BuildIssue[],
+  messagePrefix: string
+): void {
+  const entries = nodes.filter((n) => n.template === TEMPLATE_FUNCTION_ENTRY);
+  const returns = nodes.filter((n) => n.template === TEMPLATE_FUNCTION_RETURN);
+  const pre = `${messagePrefix} `;
+  if (entries.length === 0) {
+    issues.push({
+      file: relPath,
+      level: "warning",
+      message: `${pre}Function graph has no Function Entry node (Flow.FunctionEntry).`,
+    });
+  } else if (entries.length > 1) {
+    issues.push({
+      file: relPath,
+      level: "warning",
+      nodeIds: entries.map((e) => e.id),
+      message: `${pre}Multiple Function Entry nodes (${entries.length}); only one entry is supported.`,
+    });
+  }
+  if (returns.length === 0) {
+    issues.push({
+      file: relPath,
+      level: "warning",
+      message: `${pre}Function graph has no Return node (Flow.FunctionReturn).`,
+    });
+  } else if (returns.length > 1) {
+    issues.push({
+      file: relPath,
+      level: "warning",
+      nodeIds: returns.map((e) => e.id),
+      message: `${pre}Multiple Return nodes (${returns.length}); ensure control flow is valid.`,
+    });
+  }
+}
+
+export function validateBlueprintDocument(doc: BlueprintDocument, relPath: string): BuildIssue[] {
+  const issues: BuildIssue[] = [];
+  const normalized = normalizeBlueprintDocumentValue(doc);
+  if (!normalized) {
+    issues.push({
+      file: relPath,
+      level: "error",
+      message:
+        "Invalid blueprint shape: expected `graph` with nodes/edges, or legacy v2 `graphs` (first graph only is kept).",
+    });
+    return issues;
+  }
+
+  validateVariables(normalized.graph.variables, relPath, issues);
+  validateGraphInternals(normalized.graph.nodes, normalized.graph.edges, relPath, issues);
+
+  const fnIds = new Set<string>();
+  for (let fi = 0; fi < normalized.functions.length; fi++) {
+    const f = normalized.functions[fi];
+    const scope = `functions[${fi}] "${f.name}"`;
+    if (!f.id?.trim()) {
+      issues.push({
+        file: relPath,
+        level: "error",
+        message: `functions[${fi}] must have a non-empty id.`,
+      });
+      continue;
+    }
+    if (fnIds.has(f.id)) {
+      issues.push({
+        file: relPath,
+        level: "error",
+        message: `Duplicate function id '${f.id}'.`,
+      });
+    }
+    fnIds.add(f.id);
+    validateVariables(f.variables, relPath, issues, `[${scope}]`);
+    validateGraphInternals(f.nodes, f.edges, relPath, issues, `[${scope}]`);
+  }
+
+  const callableFunctionIds = new Set(normalized.functions.map((f) => f.id));
+  validateInvokeNodes(normalized.graph.nodes, relPath, issues, undefined, callableFunctionIds);
+  for (let fi = 0; fi < normalized.functions.length; fi++) {
+    const f = normalized.functions[fi];
+    const scope = `functions[${fi}] "${f.name}"`;
+    validateInvokeNodes(f.nodes, relPath, issues, `[${scope}]`, callableFunctionIds);
+    validateFunctionEntryReturn(f.nodes, relPath, issues, `[${scope}]`);
   }
 
   return issues;

@@ -1,29 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { getRootEligibilityHintKey, validateConnectionHintKey } from "./graph-validation";
+import { validateConnectionHintKey } from "./graph-validation";
 import { translateUiText } from "./ui-text";
 
 describe("localized hint triggers", () => {
-  it("triggers root-ineligible hint key and translations", () => {
-    const hintKey = getRootEligibilityHintKey(new Set(["root"]), "leaf");
-    expect(hintKey).toBe("rootNodeNotEligible");
-    expect(translateUiText("rootNodeNotEligible", "en")).toBe(
-      "Only a tree root node (without incoming links) can be set as root."
-    );
-    expect(translateUiText("rootNodeNotEligible", "zh-CN")).toBe(
-      "只有树的根节点（没有入边）才能设置为全局 Root。"
-    );
-  });
-
   it("triggers pin type mismatch hint key and translations", () => {
     const hintKey = validateConnectionHintKey(
       {
-        graph: {
-          nodes: [
-            { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
-            { id: "b", inputs: [{ name: "in", type: "string" }], outputs: [] },
-          ],
-          edges: [],
-        },
+        nodes: [
+          { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
+          { id: "b", inputs: [{ name: "in", type: "string" }], outputs: [] },
+        ],
+        edges: [],
       },
       { fromNodeId: "a", fromPin: "out" },
       "b",
@@ -41,13 +28,11 @@ describe("localized hint triggers", () => {
   it("triggers duplicate-edge hint key and translations", () => {
     const hintKey = validateConnectionHintKey(
       {
-        graph: {
-          nodes: [
-            { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
-            { id: "b", inputs: [{ name: "in", type: "exec" }], outputs: [] },
-          ],
-          edges: [{ fromNodeId: "a", fromPin: "out", toNodeId: "b", toPin: "in" }],
-        },
+        nodes: [
+          { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
+          { id: "b", inputs: [{ name: "in", type: "exec" }], outputs: [] },
+        ],
+        edges: [{ fromNodeId: "a", fromPin: "out", toNodeId: "b", toPin: "in" }],
       },
       { fromNodeId: "a", fromPin: "out" },
       "b",
@@ -61,14 +46,12 @@ describe("localized hint triggers", () => {
   it("triggers exec-input-single-incoming hint key and translations", () => {
     const hintKey = validateConnectionHintKey(
       {
-        graph: {
-          nodes: [
-            { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
-            { id: "c", inputs: [], outputs: [{ name: "out", type: "exec" }] },
-            { id: "b", inputs: [{ name: "in", type: "exec" }], outputs: [] },
-          ],
-          edges: [{ fromNodeId: "c", fromPin: "out", toNodeId: "b", toPin: "in" }],
-        },
+        nodes: [
+          { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
+          { id: "c", inputs: [], outputs: [{ name: "out", type: "exec" }] },
+          { id: "b", inputs: [{ name: "in", type: "exec" }], outputs: [] },
+        ],
+        edges: [{ fromNodeId: "c", fromPin: "out", toNodeId: "b", toPin: "in" }],
       },
       { fromNodeId: "a", fromPin: "out" },
       "b",
@@ -92,10 +75,8 @@ describe("localized hint triggers", () => {
   it("triggers missing-node hint key and translations", () => {
     const hintKey = validateConnectionHintKey(
       {
-        graph: {
-          nodes: [{ id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] }],
-          edges: [],
-        },
+        nodes: [{ id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] }],
+        edges: [],
       },
       { fromNodeId: "a", fromPin: "out" },
       "missing",
@@ -113,13 +94,11 @@ describe("localized hint triggers", () => {
   it("triggers missing-pin hint key and translations", () => {
     const hintKey = validateConnectionHintKey(
       {
-        graph: {
-          nodes: [
-            { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
-            { id: "b", inputs: [{ name: "in", type: "exec" }], outputs: [] },
-          ],
-          edges: [],
-        },
+        nodes: [
+          { id: "a", inputs: [], outputs: [{ name: "out", type: "exec" }] },
+          { id: "b", inputs: [{ name: "in", type: "exec" }], outputs: [] },
+        ],
+        edges: [],
       },
       { fromNodeId: "a", fromPin: "not-exists" },
       "b",

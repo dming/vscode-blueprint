@@ -5,20 +5,6 @@
     "name": "BlueprintSample",
     "nodes": [
       {
-        "id": "start",
-        "title": "Event Start",
-        "x": 80,
-        "y": 80,
-        "inputs": [],
-        "outputs": [
-          {
-            "name": "exec",
-            "type": "exec"
-          }
-        ],
-        "isRoot": true
-      },
-      {
         "id": "print_hello",
         "title": "Print",
         "x": 400,
@@ -48,7 +34,7 @@
         "id": "math_add",
         "title": "Add Int",
         "x": 400,
-        "y": 260,
+        "y": 620,
         "inputs": [
           {
             "name": "a",
@@ -76,7 +62,7 @@
         "id": "node_nuflc6",
         "title": "Event Start",
         "x": 80,
-        "y": 440,
+        "y": 800,
         "inputs": [
           {
             "name": "in",
@@ -95,7 +81,7 @@
         "id": "node_nvwn0z",
         "title": "Add Int",
         "x": 80,
-        "y": 260,
+        "y": 620,
         "inputs": [
           {
             "name": "a",
@@ -116,20 +102,6 @@
           "a": "1",
           "b": "2"
         },
-        "isRoot": false
-      },
-      {
-        "id": "start_copy",
-        "title": "Event Start",
-        "x": 80,
-        "y": 620,
-        "inputs": [],
-        "outputs": [
-          {
-            "name": "exec",
-            "type": "exec"
-          }
-        ],
         "isRoot": false
       },
       {
@@ -183,6 +155,92 @@
           "text": "Hello from Blueprint sample"
         },
         "isRoot": false
+      },
+      {
+        "id": "node_m84qhu",
+        "title": "onAwake",
+        "template": "Event.Start",
+        "description": "Blueprint execution entry.",
+        "isRoot": true,
+        "x": 80,
+        "y": 80,
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "lifecycleHook": "onAwake"
+        }
+      },
+      {
+        "id": "node_uxpej9",
+        "title": "onUpdate",
+        "template": "Event.Start",
+        "description": "Blueprint execution entry.",
+        "x": 80,
+        "y": 440,
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          },
+          {
+            "name": "deltaTime",
+            "type": "number"
+          }
+        ],
+        "values": {
+          "lifecycleHook": "onUpdate"
+        }
+      },
+      {
+        "id": "node_dvnjls",
+        "title": "onStart",
+        "template": "Event.Start",
+        "description": "Blueprint execution entry.",
+        "x": 80,
+        "y": 260,
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "lifecycleHook": "onStart"
+        }
+      },
+      {
+        "id": "node_hrgjve",
+        "title": "Print",
+        "template": "Debug.Print",
+        "description": "Print text for testing graph flow.",
+        "x": 400,
+        "y": 260,
+        "inputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          },
+          {
+            "name": "text",
+            "type": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "text": "Hello from Blueprint sample"
+        }
       }
     ],
     "edges": [
@@ -201,13 +259,6 @@
         "toPin": "b"
       },
       {
-        "id": "start:exec->print_hello:exec",
-        "fromNodeId": "start",
-        "fromPin": "exec",
-        "toNodeId": "print_hello",
-        "toPin": "exec"
-      },
-      {
         "id": "print_hello:exec->node_d4sy6w:exec",
         "fromNodeId": "print_hello",
         "fromPin": "exec",
@@ -215,10 +266,24 @@
         "toPin": "exec"
       },
       {
-        "id": "node_nuflc6:exec->node_bgihbj:exec",
-        "fromNodeId": "node_nuflc6",
+        "id": "node_m84qhu:exec->print_hello:exec",
+        "fromNodeId": "node_m84qhu",
+        "fromPin": "exec",
+        "toNodeId": "print_hello",
+        "toPin": "exec"
+      },
+      {
+        "id": "node_uxpej9:exec->node_bgihbj:exec",
+        "fromNodeId": "node_uxpej9",
         "fromPin": "exec",
         "toNodeId": "node_bgihbj",
+        "toPin": "exec"
+      },
+      {
+        "id": "node_dvnjls:exec->node_hrgjve:exec",
+        "fromNodeId": "node_dvnjls",
+        "fromPin": "exec",
+        "toNodeId": "node_hrgjve",
         "toPin": "exec"
       }
     ],
@@ -233,7 +298,101 @@
       }
     ]
   },
+  "functions": [
+    {
+      "id": "fn_kiqtc3n",
+      "name": "testFunc1",
+      "nodes": [
+        {
+          "id": "fn_entry_pa3kk",
+          "title": "Function Entry",
+          "template": "Flow.FunctionEntry",
+          "isRoot": true,
+          "x": 167.75685428659904,
+          "y": 93.81901157226908,
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "exec",
+              "type": "exec"
+            }
+          ]
+        },
+        {
+          "id": "fn_return_pa3kk",
+          "title": "Return",
+          "template": "Flow.FunctionReturn",
+          "x": 473.0296444895715,
+          "y": 230.2321788548426,
+          "inputs": [
+            {
+              "name": "exec",
+              "type": "exec"
+            }
+          ],
+          "outputs": []
+        }
+      ],
+      "edges": [
+        {
+          "id": "fn_entry_pa3kk:exec->fn_return_pa3kk:exec",
+          "fromNodeId": "fn_entry_pa3kk",
+          "fromPin": "exec",
+          "toNodeId": "fn_return_pa3kk",
+          "toPin": "exec"
+        }
+      ],
+      "variables": []
+    },
+    {
+      "id": "fn_c7mt3wx",
+      "name": "NewFunction",
+      "nodes": [
+        {
+          "id": "fn_entry_0fj1b",
+          "title": "Function Entry",
+          "template": "Flow.FunctionEntry",
+          "isRoot": true,
+          "x": 100,
+          "y": 120,
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "exec",
+              "type": "exec"
+            }
+          ]
+        },
+        {
+          "id": "fn_return_0fj1b",
+          "title": "Return",
+          "template": "Flow.FunctionReturn",
+          "x": 520,
+          "y": 120,
+          "inputs": [
+            {
+              "name": "exec",
+              "type": "exec"
+            }
+          ],
+          "outputs": []
+        }
+      ],
+      "edges": [
+        {
+          "id": "fn_entry_0fj1b:exec->fn_return_0fj1b:exec",
+          "fromNodeId": "fn_entry_0fj1b",
+          "fromPin": "exec",
+          "toNodeId": "fn_return_0fj1b",
+          "toPin": "exec"
+        }
+      ],
+      "variables": []
+    }
+  ],
+  "inherits": "Component",
   "metadata": {
-    "sample": true
+    "sample": true,
+    "activeGraphId": "main"
   }
 }

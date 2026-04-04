@@ -1,114 +1,128 @@
 import { describe, expect, it } from "vitest";
-import { computeNodeTreeState } from "./graph-tree-state";
+import {
+  NODE_VALUE_LIFECYCLE_HOOK,
+  TEMPLATE_EVENT_START,
+  TEMPLATE_FUNCTION_ENTRY,
+} from "../../src/blueprint/documentModel";
+import { computeNodeTreeState, type GraphTreeEdge, type GraphTreeNodeInput } from "./graph-tree-state";
+
+const execEdge = (from: string, to: string): GraphTreeEdge => ({
+  fromNodeId: from,
+  toNodeId: to,
+  fromPin: "exec",
+  toPin: "exec",
+});
+
+const ev = (id: string, hook?: string): GraphTreeNodeInput => ({
+  id,
+  template: TEMPLATE_EVENT_START,
+  inputs: [],
+  outputs: [{ name: "exec", type: "exec" }],
+  values: hook ? { [NODE_VALUE_LIFECYCLE_HOOK]: hook } : undefined,
+});
+
+const print = (id: string): GraphTreeNodeInput => ({
+  id,
+  template: "Debug.Print",
+  inputs: [
+    { name: "exec", type: "exec" },
+    { name: "text", type: "string" },
+  ],
+  outputs: [{ name: "exec", type: "exec" }],
+});
+
+const fnEntry = (id: string): GraphTreeNodeInput => ({
+  id,
+  template: TEMPLATE_FUNCTION_ENTRY,
+  inputs: [],
+  outputs: [{ name: "exec", type: "exec" }],
+});
 
 describe("computeNodeTreeState", () => {
-  it("computes root eligibility from incoming edges in each component", () => {
+  it("main: legal when first exec-entry is Event.Start with configured lifecycle hook", () => {
+    const allowed = ["onBeginPlay"];
     const state = computeNodeTreeState(
-      [
-        { id: "a" },
-        { id: "b" },
-        { id: "c" },
-        { id: "d" },
-      ],
-      [
-        { fromNodeId: "a", toNodeId: "b" },
-        { fromNodeId: "c", toNodeId: "b" },
-      ]
+      [ev("start", "onBeginPlay"), print("p")],
+      [execEdge("start", "p")],
+      "main",
+      allowed
     );
-
-    expect(state.canSetAsRoot.has("a")).toBe(true);
-    expect(state.canSetAsRoot.has("c")).toBe(true);
-    expect(state.canSetAsRoot.has("d")).toBe(true);
-    expect(state.canSetAsRoot.has("b")).toBe(false);
+    expect(Array.from(state.legalNodes).sort()).toEqual(["p", "start"]);
+    expect(state.illegalNodes.size).toBe(0);
+    expect(state.configuredLifecycleNodeIds.has("start")).toBe(true);
+    expect(state.numberById.get("start")).toBe(0);
   });
 
-  it("partitions legal and illegal nodes by the root component", () => {
+  it("main: illegal when first exec-entry is not Event.Start", () => {
+    const allowed = ["onBeginPlay"];
     const state = computeNodeTreeState(
-      [
-        { id: "root", isRoot: true },
-        { id: "x" },
-        { id: "y" },
-        { id: "z" },
-      ],
-      [
-        { fromNodeId: "root", toNodeId: "x" },
-        { fromNodeId: "y", toNodeId: "z" },
-      ]
+      [print("p"), ev("late", "onBeginPlay")],
+      [execEdge("p", "late")],
+      "main",
+      allowed
     );
-
-    expect(state.rootId).toBe("root");
-    expect(Array.from(state.legalNodes).sort()).toEqual(["root", "x"]);
-    expect(Array.from(state.illegalNodes).sort()).toEqual(["y", "z"]);
+    expect(state.legalNodes.size).toBe(0);
+    expect(Array.from(state.illegalNodes).sort()).toEqual(["late", "p"]);
   });
 
-  it("keeps numbering stable with root-first BFS and ordered fallback", () => {
+  it("main: illegal when hook not in base class list", () => {
     const state = computeNodeTreeState(
-      [
-        { id: "root", isRoot: true },
-        { id: "a" },
-        { id: "b" },
-        { id: "c" },
-        { id: "x" },
-        { id: "y" },
-      ],
-      [
-        { fromNodeId: "root", toNodeId: "b" },
-        { fromNodeId: "root", toNodeId: "a" },
-        { fromNodeId: "b", toNodeId: "c" },
-        { fromNodeId: "y", toNodeId: "x" },
-      ]
+      [ev("start", "onFoo")],
+      [],
+      "main",
+      ["onBeginPlay"]
     );
-
-    expect(state.numberById.get("root")).toBe(0);
-    expect(state.numberById.get("a")).toBe(1);
-    expect(state.numberById.get("b")).toBe(2);
-    expect(state.numberById.get("c")).toBe(3);
-    expect(state.numberById.get("x")).toBe(4);
-    expect(state.numberById.get("y")).toBe(5);
+    expect(state.legalNodes.size).toBe(0);
+    expect(state.configuredLifecycleNodeIds.has("start")).toBe(false);
   });
 
-  it("handles cycle-heavy graphs without root candidates inside cycle", () => {
-    const state = computeNodeTreeState(
-      [
-        { id: "a" },
-        { id: "b" },
-        { id: "c" },
-        { id: "iso" },
-      ],
-      [
-        { fromNodeId: "a", toNodeId: "b" },
-        { fromNodeId: "b", toNodeId: "c" },
-        { fromNodeId: "c", toNodeId: "a" },
-      ]
-    );
-
-    // All nodes in cycle have incoming edges; isolated node can still be root.
-    expect(Array.from(state.canSetAsRoot).sort()).toEqual(["iso"]);
-    expect(state.rootId).toBe(null);
-    expect(Array.from(state.legalNodes)).toEqual([]);
-    expect(Array.from(state.illegalNodes).sort()).toEqual(["a", "b", "c", "iso"]);
-    expect(state.numberById.size).toBe(4);
+  it("main: with empty allowed hooks, any Event.Start is a valid starter", () => {
+    const state = computeNodeTreeState([ev("start"), print("p")], [execEdge("start", "p")], "main", []);
+    expect(Array.from(state.legalNodes).sort()).toEqual(["p", "start"]);
+    expect(state.configuredLifecycleNodeIds.size).toBe(0);
   });
 
-  it("defends against invalid multi-root data by selecting first root deterministically", () => {
+  it("function: legal when first exec-entry is Function Entry", () => {
+    const state = computeNodeTreeState(
+      [fnEntry("e"), print("p")],
+      [execEdge("e", "p")],
+      "function",
+      []
+    );
+    expect(Array.from(state.legalNodes).sort()).toEqual(["e", "p"]);
+    expect(state.configuredLifecycleNodeIds.size).toBe(0);
+  });
+
+  it("partitions two disconnected components by their own first exec-entry", () => {
+    const allowed = ["onBeginPlay", "onTick"];
     const state = computeNodeTreeState(
       [
-        { id: "r1", isRoot: true },
-        { id: "n1" },
-        { id: "r2", isRoot: true },
-        { id: "n2" },
+        ev("a", "onBeginPlay"),
+        print("x"),
+        ev("b", "onTick"),
+        print("y"),
       ],
-      [
-        { fromNodeId: "r1", toNodeId: "n1" },
-        { fromNodeId: "r2", toNodeId: "n2" },
-      ]
+      [execEdge("a", "x"), execEdge("b", "y")],
+      "main",
+      allowed
     );
+    expect(Array.from(state.legalNodes).sort()).toEqual(["a", "b", "x", "y"]);
+    expect(state.illegalNodes.size).toBe(0);
+  });
 
-    // Current defense behavior: first `isRoot` in node order wins.
-    expect(state.rootId).toBe("r1");
-    expect(state.numberById.get("r1")).toBe(0);
-    expect(Array.from(state.legalNodes).sort()).toEqual(["n1", "r1"]);
-    expect(Array.from(state.illegalNodes).sort()).toEqual(["n2", "r2"]);
-    expect(state.numberById.get("r2")).toBeGreaterThan(0);
+  it("cycle component has no exec-entry → illegal", () => {
+    const state = computeNodeTreeState(
+      [print("a"), print("b"), print("c")],
+      [execEdge("a", "b"), execEdge("b", "c"), execEdge("c", "a")],
+      "main",
+      []
+    );
+    expect(state.legalNodes.size).toBe(0);
+    expect(Array.from(state.illegalNodes).sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("isolated Event.Start with allowed hook is legal", () => {
+    const state = computeNodeTreeState([ev("solo", "onBeginPlay")], [], "main", ["onBeginPlay"]);
+    expect(Array.from(state.legalNodes)).toEqual(["solo"]);
   });
 });

@@ -142,6 +142,11 @@ export function activate(context: vscode.ExtensionContext) {
           path.join(projectDir, "blueprint.config.json"),
           JSON.stringify(
             {
+              baseClasses: {
+                Actor: {
+                  lifecycle: ["onBeginPlay", "onTick", "onEndPlay"],
+                },
+              },
               nodeDefs: [
                 { name: "Event.Start", category: "Event", outputs: ["exec"] },
                 {
@@ -149,6 +154,15 @@ export function activate(context: vscode.ExtensionContext) {
                   category: "Debug",
                   inputs: ["exec", "text"],
                   outputs: ["exec"],
+                },
+                { name: "Flow.FunctionEntry", category: "Flow", outputs: ["exec"] },
+                { name: "Flow.FunctionReturn", category: "Flow", inputs: ["exec"] },
+                {
+                  name: "Flow.InvokeFunction",
+                  category: "Flow",
+                  inputs: ["exec"],
+                  outputs: ["exec"],
+                  defaults: { functionId: "" },
                 },
               ],
             },
@@ -170,14 +184,17 @@ export function activate(context: vscode.ExtensionContext) {
                   {
                     id: "start",
                     title: "Start",
+                    template: "Event.Start",
                     x: 120,
                     y: 120,
                     inputs: [],
                     outputs: [{ name: "exec", type: "exec" }],
+                    isRoot: true,
                   },
                   {
                     id: "print",
                     title: "Print",
+                    template: "Print",
                     x: 420,
                     y: 120,
                     inputs: [
@@ -199,6 +216,8 @@ export function activate(context: vscode.ExtensionContext) {
                 ],
                 variables: [],
               },
+              functions: [],
+              inherits: "Actor",
               metadata: {},
             },
             null,

@@ -3,6 +3,9 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { getBlueprintOutputChannel } from "../outputChannel";
 import { TreeEditorProvider } from "../treeEditorProvider";
+import { normalizeBlueprintDocumentValue } from "../blueprint/documentModel";
+import { compileBlueprintDocument } from "./compileBlueprint";
+import { emitTypeScriptFromBlueprint } from "./emitTypeScript";
 import { type BlueprintDocument, type BuildIssue, validateBlueprintDocument } from "./validateBlueprintDocument";
 
 const WORKSPACE_STATE_KEY_PREFIX = "blueprint.lastBuildOutputDir:";
@@ -196,8 +199,27 @@ export async function runBuild(
         }
         const outFile = path.join(outputDirFs, rel.replace(/\.bp\.json$/i, ".compiled.json"));
         await fs.promises.mkdir(path.dirname(outFile), { recursive: true });
-        await fs.promises.writeFile(outFile, JSON.stringify(doc, null, 2), "utf-8");
+        const normalized = normalizeBlueprintDocumentValue(doc);
+        if (!normalized) {
+          throw new Error("Invalid blueprint document shape after parse.");
+        }
+        const compilation = compileBlueprintDocument(normalized);
+        const compiledPayload = {
+          format: "blueprint.compiled.v1",
+          generatedAt: compilation.generatedAt,
+          sourceRelPath: rel,
+          blueprint: normalized,
+          compilation,
+        };
+        await fs.promises.writeFile(outFile, JSON.stringify(compiledPayload, null, 2), "utf-8");
+        const tsOut = path.join(outputDirFs, rel.replace(/\.bp\.json$/i, ".generated.ts"));
+        const tsSource = emitTypeScriptFromBlueprint(normalized, {
+          sourceRelPath: rel,
+          generatedAt: compilation.generatedAt,
+        });
+        await fs.promises.writeFile(tsOut, tsSource, "utf-8");
         out.info(`Built: ${rel}`);
+        out.info(`Emitted TS: ${path.relative(outputDirFs, tsOut).replace(/\\/g, "/")}`);
         builtCount += 1;
       } catch (e) {
         out.error(`Build failed for ${uri.fsPath}: ${e instanceof Error ? e.message : String(e)}`);

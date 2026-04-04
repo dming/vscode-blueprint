@@ -1,4 +1,21 @@
 {
+  "baseClasses": {
+    "Actor": {
+      "lifecycle": [
+        { "name": "onBeginPlay", "outputs": [] },
+        { "name": "onTick", "outputs": ["deltaTime:number"] },
+        { "name": "onEndPlay", "outputs": [] }
+      ]
+    },
+    "Component": {
+      "lifecycle": [
+        { "name": "onAwake", "outputs": [] },
+        { "name": "onStart", "outputs": [] },
+        { "name": "onUpdate", "outputs": ["deltaTime:number"] },
+        { "name": "onDestroy", "outputs": [] }
+      ]
+    }
+  },
   "nodeDefs": [
     {
       "name": "Event.Start",
@@ -29,6 +46,31 @@
         "b": 2
       },
       "desc": "Simple numeric node for type-link demo."
+    },
+    {
+      "name": "Flow.FunctionEntry",
+      "title": "Function Entry",
+      "category": "Flow",
+      "outputs": ["exec:exec"],
+      "desc": "Execution entry for a function graph."
+    },
+    {
+      "name": "Flow.FunctionReturn",
+      "title": "Return",
+      "category": "Flow",
+      "inputs": ["exec:exec"],
+      "desc": "Ends function execution (connect incoming exec)."
+    },
+    {
+      "name": "Flow.InvokeFunction",
+      "title": "Invoke Function",
+      "category": "Flow",
+      "inputs": ["exec:exec"],
+      "outputs": ["exec:exec"],
+      "defaults": {
+        "functionId": ""
+      },
+      "desc": "Call a user function from the event graph (set target in Inspector)."
     }
   ]
 }

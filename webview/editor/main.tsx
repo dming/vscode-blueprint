@@ -1,8 +1,33 @@
-import { App, Button, Card, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { App, Button, Card, Divider, Form, Input, InputNumber, Modal, Select, Space, Switch, Tag, Typography } from "antd";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { getRootEligibilityHintKey, validateConnectionHintKey } from "./graph-validation";
+import {
+  type BlueprintDocument,
+  type BlueprintEdge,
+  type BlueprintGraphBody,
+  type BlueprintNode,
+  type BlueprintPin as Pin,
+  type EditTarget,
+  blueprintPinsEqual,
+  collectLifecycleHookNamesFromGraph,
+  createDefaultBlueprintDocument,
+  findEventStartNodeIdForLifecycleHook,
+  createNewFunctionGraphBody,
+  getGraphBody,
+  mapDocAtTarget,
+  mergeEventStartPinsForLifecycle,
+  NODE_VALUE_LIFECYCLE_HOOK,
+  parseBlueprintDocumentJson,
+  stripInvokeReferencesToFunction,
+  TEMPLATE_EVENT_START,
+  TEMPLATE_FUNCTION_ENTRY,
+  TEMPLATE_FUNCTION_RETURN,
+  TEMPLATE_INVOKE_FUNCTION,
+} from "../../src/blueprint/documentModel";
+import type { BaseClassDef } from "../../src/types";
+import { validateConnectionHintKey } from "./graph-validation";
 import { computeNodeTreeState } from "./graph-tree-state";
+import { MyBlueprintPanel } from "./my-blueprint-panel";
 import { resolveUiLocale, translateUiText, type UiTextKey } from "./ui-text";
 import * as vscodeApi from "./vscodeApi";
 import {
@@ -25,36 +50,6 @@ import {
 } from "./canvas-toolbar-icons";
 import "./style.scss";
 
-type Pin = { name: string; type: string };
-type BlueprintNode = {
-  id: string;
-  title: string;
-  description?: string;
-  isRoot?: boolean;
-  x: number;
-  y: number;
-  inputs: Pin[];
-  outputs: Pin[];
-  values?: Record<string, string>;
-};
-type BlueprintEdge = {
-  id: string;
-  fromNodeId: string;
-  fromPin: string;
-  toNodeId: string;
-  toPin: string;
-};
-type BlueprintDocument = {
-  formatVersion: number;
-  graph: {
-    id: string;
-    name: string;
-    nodes: BlueprintNode[];
-    edges: BlueprintEdge[];
-    variables: Array<{ name: string; type: string }>;
-  };
-  metadata: Record<string, unknown>;
-};
 type BuildIssue = {
   file: string;
   message: string;
@@ -76,6 +71,9 @@ type NodeDef = {
 
 const UI_LOCALE = resolveUiLocale();
 
+/** Stable empty list so `useMemo` / `useEffect` deps do not churn on “no hooks”. */
+const STABLE_EMPTY_LIFECYCLE: readonly string[] = [];
+
 const tr = (
   key: UiTextKey,
   params?: Record<string, string | number>
@@ -83,67 +81,8 @@ const tr = (
   return translateUiText(key, UI_LOCALE, params);
 };
 
-const createDefaultDocument = (): BlueprintDocument => ({
-  formatVersion: 1,
-  graph: {
-    id: "main",
-    name: "Main",
-    nodes: [
-      {
-        id: "start",
-        title: "Start",
-        isRoot: true,
-        x: 120,
-        y: 120,
-        inputs: [],
-        outputs: [{ name: "exec", type: "exec" }],
-      },
-      {
-        id: "print",
-        title: "Print",
-        x: 430,
-        y: 120,
-        inputs: [
-          { name: "exec", type: "exec" },
-          { name: "text", type: "string" },
-        ],
-        outputs: [{ name: "exec", type: "exec" }],
-        values: { text: "Hello Blueprint" },
-      },
-    ],
-    edges: [
-      {
-        id: "e-start-print",
-        fromNodeId: "start",
-        fromPin: "exec",
-        toNodeId: "print",
-        toPin: "exec",
-      },
-    ],
-    variables: [],
-  },
-  metadata: {},
-});
-
-const parseDocument = (content: string): BlueprintDocument => {
-  try {
-    const parsed = JSON.parse(content) as BlueprintDocument;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !parsed.graph ||
-      !Array.isArray(parsed.graph.nodes) ||
-      !Array.isArray(parsed.graph.edges)
-    ) {
-      return createDefaultDocument();
-    }
-    return parsed;
-  } catch {
-    return createDefaultDocument();
-  }
-};
-const cloneDocument = (doc: BlueprintDocument): BlueprintDocument =>
-  JSON.parse(JSON.stringify(doc)) as BlueprintDocument;
+const createDefaultDocument = (): BlueprintDocument => createDefaultBlueprintDocument();
+const parseDocument = (content: string): BlueprintDocument => parseBlueprintDocumentJson(content);
 
 const normalizeNodeDef = (raw: unknown): NodeDef | null => {
   if (!raw || typeof raw !== "object") return null;
@@ -404,18 +343,18 @@ const parsePinLines = (raw: string): { pins: Pin[]; error?: string } => {
 };
 
 const validateConnection = (
-  doc: BlueprintDocument,
+  graph: BlueprintGraphBody,
   pending: PendingConnection,
   toNodeId: string,
   toPinName: string
 ): string | null => {
-  const hintKey = validateConnectionHintKey(doc, pending, toNodeId, toPinName);
+  const hintKey = validateConnectionHintKey(graph, pending, toNodeId, toPinName);
   if (!hintKey) {
     return null;
   }
   if (hintKey === "connectionPinTypeMismatch") {
-    const fromNode = doc.graph.nodes.find((n) => n.id === pending.fromNodeId);
-    const toNode = doc.graph.nodes.find((n) => n.id === toNodeId);
+    const fromNode = graph.nodes.find((n) => n.id === pending.fromNodeId);
+    const toNode = graph.nodes.find((n) => n.id === toNodeId);
     const outPin = findOutputPin(fromNode, pending.fromPin);
     const inPin = findInputPin(toNode, toPinName);
     return tr(hintKey, {
@@ -432,6 +371,8 @@ const validateConnection = (
 const EditorApp = () => {
   const [ready, setReady] = useState(false);
   const [doc, setDoc] = useState<BlueprintDocument>(createDefaultDocument());
+  const latestDocRef = useRef(doc);
+  latestDocRef.current = doc;
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pending, setPending] = useState<PendingConnection | null>(null);
@@ -457,7 +398,6 @@ const EditorApp = () => {
     null
   );
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
-  const [nodeContextMenu, setNodeContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [canvasContextMenu, setCanvasContextMenu] = useState<{
     x: number;
     y: number;
@@ -468,10 +408,10 @@ const EditorApp = () => {
   const [addNodeTemplateQuery, setAddNodeTemplateQuery] = useState("");
   const addNodeMenuSearchRef = useRef<any>(null);
   const dismissContextMenus = () => {
-    setNodeContextMenu(null);
     setCanvasContextMenu(null);
   };
   const [form] = Form.useForm<{ description: string }>();
+  const [variableForm] = Form.useForm<{ name: string; type: string }>();
   const [historyState, setHistoryState] = useState({ index: -1, length: 0 });
   const [collapsedInspectorPins, setCollapsedInspectorPins] = useState({
     inputs: false,
@@ -479,6 +419,210 @@ const EditorApp = () => {
   });
   const [showLegend, setShowLegend] = useState(true);
   const [pinTypeTooltip, setPinTypeTooltip] = useState<PinTypeTooltipState | null>(null);
+  const [selectedVariableIndex, setSelectedVariableIndex] = useState<number | null>(null);
+  const [graphExplorerActive, setGraphExplorerActive] = useState(true);
+  const [baseClasses, setBaseClasses] = useState<BaseClassDef[]>([]);
+  const [selectedLifecycleEvent, setSelectedLifecycleEvent] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<EditTarget>({ kind: "main" });
+  const [functionRenameModal, setFunctionRenameModal] = useState<{ id: string } | null>(null);
+  const [functionRenameDraft, setFunctionRenameDraft] = useState("");
+  const [inheritsSelectOpen, setInheritsSelectOpen] = useState(false);
+
+  const activeGraph = useMemo(() => getGraphBody(doc, editTarget), [doc, editTarget]);
+  const functionGraphList = useMemo(
+    () => doc.functions.map((f) => ({ id: f.id, name: f.name })),
+    [doc.functions]
+  );
+  const editingContextLabel = useMemo(() => {
+    if (editTarget.kind === "main") {
+      return tr("canvasEditingMainGraph");
+    }
+    const f = doc.functions.find((x) => x.id === editTarget.id);
+    return f?.name ?? editTarget.id;
+  }, [editTarget, doc.functions]);
+  const configLifecycleHooks = useMemo((): readonly string[] => {
+    const name = doc.inherits?.trim();
+    if (!name) {
+      return STABLE_EMPTY_LIFECYCLE;
+    }
+    const bc = baseClasses.find((b) => b.name === name);
+    if (!bc?.lifecycle?.length) {
+      return STABLE_EMPTY_LIFECYCLE;
+    }
+    return bc.lifecycle.map((h) => h.name);
+  }, [doc.inherits, baseClasses]);
+
+  const graphLifecycleHooks = useMemo(
+    () => collectLifecycleHookNamesFromGraph(doc.graph),
+    [doc.graph]
+  );
+
+  /** Hooks that already have an Event.Start on the main graph (left list). */
+  const displayedLifecycleHooks = useMemo(() => {
+    const hooks = [...graphLifecycleHooks];
+    const order = new Map(configLifecycleHooks.map((h, i) => [h, i] as const));
+    return hooks.sort((a, b) => {
+      const oa = order.get(a);
+      const ob = order.get(b);
+      if (oa !== undefined && ob !== undefined) {
+        return oa - ob;
+      }
+      if (oa !== undefined) {
+        return -1;
+      }
+      if (ob !== undefined) {
+        return 1;
+      }
+      return a.localeCompare(b);
+    });
+  }, [graphLifecycleHooks, configLifecycleHooks]);
+
+  /** Config hooks not yet added to the main graph (+ menu). */
+  const lifecycleHooksAvailableToAdd = useMemo(() => {
+    const onGraph = new Set(graphLifecycleHooks);
+    return configLifecycleHooks.filter((h) => !onGraph.has(h));
+  }, [graphLifecycleHooks, configLifecycleHooks]);
+
+  const addLifecyclePlusTitle = useMemo(() => {
+    if (lifecycleHooksAvailableToAdd.length > 0) {
+      return tr("myBlueprintAddLifecycleTooltip");
+    }
+    const inh = doc.inherits?.trim();
+    if (!inh) {
+      return tr("myBlueprintAddLifecycleNeedBase");
+    }
+    if (!baseClasses.some((b) => b.name === inh)) {
+      return tr("myBlueprintLifecycleUnknownBase", { name: inh });
+    }
+    const bc = baseClasses.find((b) => b.name === inh);
+    if (!bc?.lifecycle?.length) {
+      return tr("myBlueprintLifecycleNoHooks", { name: inh });
+    }
+    return tr("myBlueprintLifecycleAllAdded");
+  }, [lifecycleHooksAvailableToAdd.length, doc.inherits, baseClasses]);
+
+  const lifecycleEmptyHint = useMemo(() => {
+    if (displayedLifecycleHooks.length > 0) {
+      return null;
+    }
+    const inh = doc.inherits?.trim();
+    if (!inh) {
+      return tr("myBlueprintLifecyclePickBase");
+    }
+    if (!baseClasses.some((b) => b.name === inh)) {
+      return tr("myBlueprintLifecycleUnknownBase", { name: inh });
+    }
+    const bc = baseClasses.find((b) => b.name === inh);
+    if (bc?.lifecycle?.length) {
+      return tr("myBlueprintLifecycleUsePlusToAdd");
+    }
+    return tr("myBlueprintLifecycleNoHooks", { name: inh });
+  }, [displayedLifecycleHooks.length, doc.inherits, baseClasses]);
+
+  /** Keep Event.Start pins in sync with blueprint.config.json lifecycle `outputs` (inputs follow Event.Start template only). */
+  useEffect(() => {
+    const inh = doc.inherits?.trim();
+    if (!inh) {
+      return;
+    }
+    const bc = baseClasses.find((b) => b.name === inh);
+    if (!bc?.lifecycle.length) {
+      return;
+    }
+    const template = nodeDefs.find((d) => d.name === TEMPLATE_EVENT_START);
+    const tmplIn = template?.inputs ?? [];
+    const tmplOut =
+      template?.outputs && template.outputs.length > 0
+        ? template.outputs
+        : [{ name: "exec", type: "exec" }];
+    const hookByName = new Map(bc.lifecycle.map((h) => [h.name, h] as const));
+
+    skipPushHistoryRef.current = true;
+    setDoc((prev) => {
+      let changed = false;
+      const nextNodes = prev.graph.nodes.map((n) => {
+        if (n.template !== TEMPLATE_EVENT_START) {
+          return n;
+        }
+        const hookName = (n.values?.[NODE_VALUE_LIFECYCLE_HOOK] ?? "").trim();
+        if (!hookName) {
+          return n;
+        }
+        const hookDef = hookByName.get(hookName);
+        if (!hookDef) {
+          return n;
+        }
+        const { inputs, outputs } = mergeEventStartPinsForLifecycle(tmplIn, tmplOut, hookDef);
+        if (blueprintPinsEqual(n.inputs, inputs) && blueprintPinsEqual(n.outputs, outputs)) {
+          return n;
+        }
+        changed = true;
+        return { ...n, inputs, outputs };
+      });
+      if (!changed) {
+        return prev;
+      }
+      return { ...prev, graph: { ...prev.graph, nodes: nextNodes } };
+    });
+  }, [baseClasses, nodeDefs, doc.inherits, doc.graph]);
+
+  useEffect(() => {
+    if (editTarget.kind === "function") {
+      setInheritsSelectOpen(false);
+    }
+  }, [editTarget.kind]);
+
+  const handleInheritsDropdownVisibleChange = useCallback(
+    (nextOpen: boolean) => {
+      if (editTarget.kind === "function") {
+        return;
+      }
+      if (!nextOpen) {
+        setInheritsSelectOpen(false);
+        return;
+      }
+      const cur = doc.inherits?.trim();
+      if (!cur) {
+        setInheritsSelectOpen(true);
+        return;
+      }
+      Modal.confirm({
+        title: tr("inheritsChangeWarnTitle"),
+        content: tr("inheritsChangeWarnBody", { current: cur }),
+        okText: tr("inheritsChangeConfirm"),
+        cancelText: tr("functionCancel"),
+        onOk: () => {
+          setInheritsSelectOpen(true);
+        },
+      });
+      setInheritsSelectOpen(false);
+    },
+    [doc.inherits, editTarget.kind]
+  );
+
+  const handleInheritsSelectChange = useCallback(
+    (v: unknown) => {
+      const next = v != null && v !== "" ? String(v) : undefined;
+      const had = doc.inherits?.trim();
+      if (had && next === undefined) {
+        Modal.confirm({
+          title: tr("inheritsClearWarnTitle"),
+          content: tr("inheritsClearWarnBody", { current: had }),
+          okText: tr("inheritsClearConfirm"),
+          cancelText: tr("functionCancel"),
+          onOk: () => {
+            setDoc((prev) => ({ ...prev, inherits: undefined }));
+            setInheritsSelectOpen(false);
+          },
+        });
+        return;
+      }
+      setDoc((prev) => ({ ...prev, inherits: next }));
+      setInheritsSelectOpen(false);
+    },
+    [doc.inherits]
+  );
+
   const clearFocusTimerRef = useRef<number | null>(null);
   const invalidPinTimerRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -505,6 +649,17 @@ const EditorApp = () => {
     id: string;
     description: string;
   } | null>(null);
+  const editTargetRef = useRef<EditTarget>({ kind: "main" });
+
+  useEffect(() => {
+    editTargetRef.current = editTarget;
+  }, [editTarget]);
+
+  useEffect(() => {
+    if (editTarget.kind === "function" && !doc.functions.some((f) => f.id === editTarget.id)) {
+      setEditTarget({ kind: "main" });
+    }
+  }, [doc.functions, editTarget.kind, editTarget.id]);
 
   /**
    * Screen-space pin anchors from layout + viewport. Used for edge SVG paths so curves stay in sync
@@ -546,8 +701,8 @@ const EditorApp = () => {
   };
 
   const selectedNode = useMemo(
-    () => doc.graph.nodes.find((n) => n.id === selectedNodeId) ?? null,
-    [doc.graph.nodes, selectedNodeId]
+    () => activeGraph.nodes.find((n) => n.id === selectedNodeId) ?? null,
+    [activeGraph.nodes, selectedNodeId]
   );
 
   const serialized = useMemo(() => JSON.stringify(doc, null, 2), [doc]);
@@ -582,21 +737,196 @@ const EditorApp = () => {
   };
   const selectedLookup = useMemo(() => {
     const map = new Map<string, BlueprintNode>();
-    for (const n of doc.graph.nodes) {
+    for (const n of activeGraph.nodes) {
       map.set(n.id, n);
     }
     return map;
-  }, [doc.graph.nodes]);
+  }, [activeGraph.nodes]);
   const edgeLookup = useMemo(() => {
     const map = new Map<string, BlueprintEdge>();
-    for (const e of doc.graph.edges) {
+    for (const e of activeGraph.edges) {
       map.set(e.id, e);
     }
     return map;
-  }, [doc.graph.edges]);
+  }, [activeGraph.edges]);
+
+  const selectedVariable = useMemo(() => {
+    if (selectedVariableIndex === null) {
+      return null;
+    }
+    return activeGraph.variables[selectedVariableIndex] ?? null;
+  }, [activeGraph.variables, selectedVariableIndex]);
+
+  useEffect(() => {
+    setSelectedVariableIndex(null);
+  }, [editTarget]);
+
+  useEffect(() => {
+    setSelectedLifecycleEvent((cur) => {
+      if (cur && displayedLifecycleHooks.includes(cur)) {
+        return cur;
+      }
+      return displayedLifecycleHooks[0] ?? null;
+    });
+  }, [displayedLifecycleHooks]);
+
+  useEffect(() => {
+    if (selectedNodeId !== null) {
+      setGraphExplorerActive(true);
+      setSelectedVariableIndex(null);
+    }
+  }, [selectedNodeId]);
+
+  const onBackToEventGraph = useCallback(() => {
+    setEditTarget({ kind: "main" });
+    setGraphExplorerActive(true);
+    setSelectedVariableIndex(null);
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+  }, []);
+
+  const onExplorerSelectLifecycleHook = useCallback((hook: string) => {
+    onBackToEventGraph();
+    setSelectedLifecycleEvent(hook);
+  }, [onBackToEventGraph]);
+
+  const onExplorerSelectFunctionId = useCallback((functionId: string) => {
+    setEditTarget({ kind: "function", id: functionId });
+    setGraphExplorerActive(true);
+    setSelectedVariableIndex(null);
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+  }, []);
+
+  const onExplorerAddFunction = useCallback(() => {
+    const id = `fn_${Math.random().toString(36).slice(2, 9)}`;
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+    setGraphExplorerActive(true);
+    setSelectedVariableIndex(null);
+    setDoc((prev) => {
+      let name = "NewFunction";
+      let n = 0;
+      while (prev.functions.some((f) => f.name === name)) {
+        n += 1;
+        name = `NewFunction_${n}`;
+      }
+      const body = createNewFunctionGraphBody(id, name);
+      return {
+        ...prev,
+        functions: [...prev.functions, body],
+      };
+    });
+    setEditTarget({ kind: "function", id });
+  }, []);
+
+  const onExplorerRenameFunction = useCallback((functionId: string) => {
+    const f = doc.functions.find((x) => x.id === functionId);
+    setFunctionRenameDraft(f?.name ?? "");
+    setFunctionRenameModal({ id: functionId });
+  }, [doc.functions]);
+
+  const applyFunctionRename = useCallback(() => {
+    if (!functionRenameModal) {
+      return;
+    }
+    const name = functionRenameDraft.trim() || "Unnamed";
+    setDoc((prev) => ({
+      ...prev,
+      functions: prev.functions.map((f) => (f.id === functionRenameModal.id ? { ...f, name } : f)),
+    }));
+    setFunctionRenameModal(null);
+  }, [functionRenameDraft, functionRenameModal]);
+
+  const onExplorerDeleteFunction = useCallback(
+    (functionId: string) => {
+      const f = doc.functions.find((x) => x.id === functionId);
+      Modal.confirm({
+        title: tr("functionDeleteConfirmTitle"),
+        content: tr("functionDeleteConfirmContent", { name: f?.name ?? functionId }),
+        okType: "danger",
+        okText: tr("functionDeleteOk"),
+        cancelText: tr("functionCancel"),
+        onOk: () => {
+          setDoc((prev) => {
+            const stripped = stripInvokeReferencesToFunction(prev, functionId);
+            return { ...stripped, functions: stripped.functions.filter((x) => x.id !== functionId) };
+          });
+          setEditTarget((cur) => (cur.kind === "function" && cur.id === functionId ? { kind: "main" } : cur));
+        },
+      });
+    },
+    [doc.functions]
+  );
+
+  const onExplorerSelectVariable = useCallback((index: number) => {
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+    setGraphExplorerActive(false);
+    setSelectedVariableIndex(index);
+  }, []);
+
+  const onExplorerAddVariable = useCallback(() => {
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+    setGraphExplorerActive(false);
+    setDoc((prev) => {
+      const t = editTargetRef.current;
+      let newIndex = 0;
+      const next = mapDocAtTarget(prev, t, (g) => {
+        const vars = [...g.variables];
+        let name = "newVar";
+        let n = 0;
+        while (vars.some((x) => x.name === name)) {
+          n += 1;
+          name = `newVar${n}`;
+        }
+        vars.push({ name, type: "string" });
+        newIndex = vars.length - 1;
+        return { ...g, variables: vars };
+      });
+      queueMicrotask(() => {
+        setSelectedVariableIndex(newIndex);
+      });
+      return next;
+    });
+  }, []);
+
+  const onExplorerRemoveVariable = useCallback((index: number) => {
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        variables: g.variables.filter((_, i) => i !== index),
+      }))
+    );
+    setSelectedVariableIndex((cur) => {
+      if (cur === null) {
+        return null;
+      }
+      if (cur === index) {
+        return null;
+      }
+      if (cur > index) {
+        return cur - 1;
+      }
+      return cur;
+    });
+    setGraphExplorerActive(true);
+  }, []);
   const nodeTreeState = useMemo(
-    () => computeNodeTreeState(doc.graph.nodes, doc.graph.edges),
-    [doc.graph.nodes, doc.graph.edges]
+    () =>
+      computeNodeTreeState(
+        activeGraph.nodes,
+        activeGraph.edges,
+        editTarget.kind === "main" ? "main" : "function",
+        configLifecycleHooks
+      ),
+    [activeGraph.nodes, activeGraph.edges, editTarget.kind, configLifecycleHooks]
   );
   const clientToWorld = (clientX: number, clientY: number) => {
     if (!canvasRef.current) {
@@ -617,7 +947,18 @@ const EditorApp = () => {
   };
   const templateOptions = useMemo(() => {
     const groups = new Map<string, Array<{ label: string; value: string }>>();
+    const onMainGraph = editTarget.kind === "main";
     for (const def of nodeDefs) {
+      if (def.name === TEMPLATE_FUNCTION_ENTRY || def.name === TEMPLATE_FUNCTION_RETURN) {
+        if (onMainGraph) {
+          continue;
+        }
+      }
+      if (def.name === TEMPLATE_INVOKE_FUNCTION) {
+        if (!onMainGraph) {
+          continue;
+        }
+      }
       const group = def.category?.trim() || "General";
       const label = def.title || def.name;
       if (!groups.has(group)) {
@@ -631,7 +972,7 @@ const EditorApp = () => {
         label,
         options: options.sort((a, b) => a.label.localeCompare(b.label)),
       }));
-  }, [nodeDefs]);
+  }, [nodeDefs, editTarget.kind]);
 
   const filteredTemplateMenuGroups = useMemo(() => {
     const q = addNodeTemplateQuery.trim().toLowerCase();
@@ -653,13 +994,13 @@ const EditorApp = () => {
 
   const nodeSearchOptions = useMemo(
     () =>
-      doc.graph.nodes
+      activeGraph.nodes
         .map((n) => ({
           value: n.id,
           label: `${n.title || n.id} (${n.id})`,
         }))
         .sort((a, b) => a.label.localeCompare(b.label)),
-    [doc.graph.nodes]
+    [activeGraph.nodes]
   );
 
   useEffect(() => {
@@ -691,10 +1032,10 @@ const EditorApp = () => {
   }, [selectedNode, form]);
 
   useEffect(() => {
-    if (findNodeId && !doc.graph.nodes.some((n) => n.id === findNodeId)) {
+    if (findNodeId && !activeGraph.nodes.some((n) => n.id === findNodeId)) {
       setFindNodeId("");
     }
-  }, [doc.graph.nodes, findNodeId]);
+  }, [activeGraph.nodes, findNodeId]);
 
   useEffect(() => {
     if (!pending) {
@@ -710,8 +1051,12 @@ const EditorApp = () => {
         setDoc(parseDocument(msg.content));
         setExtensionVersion(msg.extensionVersion ?? "");
         resetHistoryRef.current = true;
+        setSelectedVariableIndex(null);
+        setEditTarget({ kind: "main" });
+        setGraphExplorerActive(true);
         const defs = (msg.nodeDefs ?? []).map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
         setNodeDefs(defs);
+        setBaseClasses(msg.baseClasses ?? []);
         setReady(true);
       } else if (msg.type === "fileChanged") {
         const parsed = parseDocument(msg.content);
@@ -728,12 +1073,16 @@ const EditorApp = () => {
         setDoc(parsed);
         resetHistoryRef.current = true;
         setSelectedEdgeId(null);
+        setSelectedVariableIndex(null);
+        setEditTarget({ kind: "main" });
+        setGraphExplorerActive(true);
       } else if (msg.type === "buildResult") {
         setBuildMessage(msg.message);
         setBuildIssues(msg.issues ?? []);
       } else if (msg.type === "settingLoaded") {
         const defs = (msg.nodeDefs ?? []).map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
         setNodeDefs(defs);
+        setBaseClasses(msg.baseClasses ?? []);
       }
     });
     vscodeApi.postMessage({ type: "ready" });
@@ -835,11 +1184,10 @@ const EditorApp = () => {
       }
       // Dragging updates are preview-like; commit one history entry on mouse up.
       skipPushHistoryRef.current = true;
-      setDoc((prev) => ({
-        ...prev,
-        graph: {
-          ...prev.graph,
-          nodes: prev.graph.nodes.map((n) =>
+      setDoc((prev) =>
+        mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+          ...g,
+          nodes: g.nodes.map((n) =>
             drag.nodeIds.includes(n.id)
               ? {
                 ...n,
@@ -848,8 +1196,8 @@ const EditorApp = () => {
               }
               : n
           ),
-        },
-      }));
+        }))
+      );
     };
     const onUp = () => {
       if (isDragDebugEnabled()) {
@@ -880,16 +1228,15 @@ const EditorApp = () => {
     }
     // Escape during drag restores pre-drag node positions.
     skipPushHistoryRef.current = true;
-    setDoc((prev) => ({
-      ...prev,
-      graph: {
-        ...prev.graph,
-        nodes: prev.graph.nodes.map((n) => {
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        nodes: g.nodes.map((n) => {
           const start = drag.startNodePositions[n.id];
           return start ? { ...n, x: start.x, y: start.y } : n;
         }),
-      },
-    }));
+      }))
+    );
     dragMovedRef.current = false;
     setDrag(null);
   };
@@ -919,7 +1266,7 @@ const EditorApp = () => {
       const maxX = Math.max(marquee.startClientX, marquee.currentClientX) - rect.left;
       const minY = Math.min(marquee.startClientY, marquee.currentClientY) - rect.top;
       const maxY = Math.max(marquee.startClientY, marquee.currentClientY) - rect.top;
-      const hits = doc.graph.nodes
+      const hits = activeGraph.nodes
         .filter((node) => {
           const left = node.x * viewport.scale + viewport.x;
           const top = node.y * viewport.scale + viewport.y;
@@ -938,7 +1285,7 @@ const EditorApp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [marquee, doc.graph.nodes, viewport.scale, viewport.x, viewport.y]);
+  }, [marquee, activeGraph.nodes, viewport.scale, viewport.x, viewport.y]);
 
   useEffect(() => {
     if (!pan) {
@@ -961,22 +1308,21 @@ const EditorApp = () => {
   }, [pan]);
 
   useEffect(() => {
-    if (!nodeContextMenu && !canvasContextMenu) {
+    if (!canvasContextMenu) {
       return;
     }
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest(".bp-node-context-menu") || target?.closest(".bp-canvas-context-menu")) {
+      if (target?.closest(".bp-canvas-context-menu")) {
         return;
       }
       dismissContextMenus();
-      setCanvasContextMenu(null);
     };
     window.addEventListener("mousedown", onPointerDown);
     return () => {
       window.removeEventListener("mousedown", onPointerDown);
     };
-  }, [nodeContextMenu, canvasContextMenu]);
+  }, [canvasContextMenu]);
 
   useEffect(() => {
     if (!canvasContextMenu) {
@@ -1011,20 +1357,19 @@ const EditorApp = () => {
     const id = `node_${Math.random().toString(36).slice(2, 8)}`;
     const inputs = template.inputs ?? [{ name: "in", type: "exec" }];
     const outputs = template.outputs ?? [{ name: "out", type: "exec" }];
-    setDoc((prev) => {
-      const x = worldPos?.x ?? 160 + prev.graph.nodes.length * 24;
-      const y = worldPos?.y ?? 160 + prev.graph.nodes.length * 16;
-      return {
-        ...prev,
-        graph: {
-          ...prev.graph,
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => {
+        const x = worldPos?.x ?? 160 + g.nodes.length * 24;
+        const y = worldPos?.y ?? 160 + g.nodes.length * 16;
+        return {
+          ...g,
           nodes: [
-            ...prev.graph.nodes,
+            ...g.nodes,
             {
               id,
               title: template.title || template.name || "New Node",
+              template: template.name,
               description: template.desc ?? "",
-              isRoot: false,
               x,
               y,
               inputs,
@@ -1036,9 +1381,9 @@ const EditorApp = () => {
                 : undefined,
             },
           ],
-        },
-      };
-    });
+        };
+      })
+    );
     setSelectedNodeId(id);
     setSelectedNodeIds([id]);
     dismissContextMenus();
@@ -1049,16 +1394,15 @@ const EditorApp = () => {
     if (targets.length === 0) {
       return;
     }
-    setDoc((prev) => ({
-      ...prev,
-      graph: {
-        ...prev.graph,
-        nodes: prev.graph.nodes.filter((n) => !targets.includes(n.id)),
-        edges: prev.graph.edges.filter(
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        nodes: g.nodes.filter((n) => !targets.includes(n.id)),
+        edges: g.edges.filter(
           (e) => !targets.includes(e.fromNodeId) && !targets.includes(e.toNodeId)
         ),
-      },
-    }));
+      }))
+    );
     setSelectedNodeIds([]);
     setSelectedNodeId(null);
     dismissContextMenus();
@@ -1079,6 +1423,9 @@ const EditorApp = () => {
     setDoc(parseDocument(snapshot));
     setSelectedNodeId(null);
     setSelectedNodeIds([]);
+    setSelectedVariableIndex(null);
+    setEditTarget({ kind: "main" });
+    setGraphExplorerActive(true);
     setConnectionHint(null);
     setPending(null);
     setFocusedEdgeId(null);
@@ -1098,6 +1445,9 @@ const EditorApp = () => {
     setDoc(parseDocument(snapshot));
     setSelectedNodeId(null);
     setSelectedNodeIds([]);
+    setSelectedVariableIndex(null);
+    setEditTarget({ kind: "main" });
+    setGraphExplorerActive(true);
     setConnectionHint(null);
     setPending(null);
     setFocusedEdgeId(null);
@@ -1114,7 +1464,8 @@ const EditorApp = () => {
       return;
     }
     setDoc((prev) => {
-      const selected = prev.graph.nodes.filter((n) => targets.includes(n.id));
+      const g = getGraphBody(prev, editTargetRef.current);
+      const selected = g.nodes.filter((n) => targets.includes(n.id));
       if (selected.length < 2) {
         return prev;
       }
@@ -1147,56 +1498,29 @@ const EditorApp = () => {
           yMap.set(ordered[i].id, distributed[i]);
         }
       }
-      return {
-        ...prev,
-        graph: {
-          ...prev.graph,
-          nodes: prev.graph.nodes.map((n) =>
-            targets.includes(n.id)
-              ? {
-                ...n,
-                x: xMap.has(n.id) ? xMap.get(n.id)! : n.x,
-                y: yMap.has(n.id) ? yMap.get(n.id)! : n.y,
-              }
-              : n
-          ),
-        },
-      };
+      return mapDocAtTarget(prev, editTargetRef.current, (g2) => ({
+        ...g2,
+        nodes: g2.nodes.map((n) =>
+          targets.includes(n.id)
+            ? {
+              ...n,
+              x: xMap.has(n.id) ? xMap.get(n.id)! : n.x,
+              y: yMap.has(n.id) ? yMap.get(n.id)! : n.y,
+            }
+            : n
+        ),
+      }));
     });
   };
   const onAutoLayout = () => {
-    setDoc((prev) => ({
-      ...prev,
-      graph: {
-        ...prev.graph,
-        nodes: autoLayoutNodes(prev.graph.nodes, prev.graph.edges),
-      },
-    }));
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        nodes: autoLayoutNodes(g.nodes, g.edges),
+      }))
+    );
     setConnectionHint(null);
     setPending(null);
-    dismissContextMenus();
-  };
-  const onSetRootNode = (nodeId: string) => {
-    const rootHint = getRootEligibilityHintKey(nodeTreeState.canSetAsRoot, nodeId);
-    if (rootHint) {
-      setConnectionHint(tr(rootHint));
-      dismissContextMenus();
-      return;
-    }
-    setDoc((prev) => ({
-      ...prev,
-      graph: {
-        ...prev.graph,
-        nodes: prev.graph.nodes.map((n) => ({
-          ...n,
-          isRoot: n.id === nodeId,
-        })),
-      },
-    }));
-    setSelectedNodeId(nodeId);
-    setSelectedNodeIds([nodeId]);
-    setSelectedEdgeId(null);
-    setConnectionHint(null);
     dismissContextMenus();
   };
   const toggleInspectorPins = (key: "inputs" | "outputs") => {
@@ -1211,11 +1535,67 @@ const EditorApp = () => {
     }
   };
 
+  const commitPendingConnection = (nodeId: string, pinName: string, removeExistingToInput: boolean) => {
+    const cur = pending;
+    if (!cur) {
+      return;
+    }
+    const edgeId = `${cur.fromNodeId}:${cur.fromPin}->${nodeId}:${pinName}`;
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g2) => {
+        let nextEdges = g2.edges;
+        if (removeExistingToInput) {
+          nextEdges = nextEdges.filter((e) => !(e.toNodeId === nodeId && e.toPin === pinName));
+        }
+        if (nextEdges.some((e) => e.id === edgeId)) {
+          return { ...g2, edges: nextEdges };
+        }
+        return {
+          ...g2,
+          edges: [
+            ...nextEdges,
+            {
+              id: edgeId,
+              fromNodeId: cur.fromNodeId,
+              fromPin: cur.fromPin,
+              toNodeId: nodeId,
+              toPin: pinName,
+            },
+          ],
+        };
+      })
+    );
+    setConnectionHint(null);
+    setPending(null);
+    setHoveredInputPin(null);
+    setSelectedEdgeId(null);
+  };
+
   const onInputPinClick = (nodeId: string, pinName: string) => {
     if (!pending || pending.fromNodeId === nodeId) {
       return;
     }
-    const reason = validateConnection(doc, pending, nodeId, pinName);
+    const hintKey = validateConnectionHintKey(activeGraph, pending, nodeId, pinName);
+    if (hintKey === "connectionExecInputAlreadyConnected") {
+      const block = activeGraph.edges.find((e) => e.toNodeId === nodeId && e.toPin === pinName);
+      if (!block) {
+        return;
+      }
+      const target = `${nodeId}.${pinName}`;
+      const existing = `${block.fromNodeId}.${block.fromPin}`;
+      const incoming = `${pending.fromNodeId}.${pending.fromPin}`;
+      Modal.confirm({
+        title: tr("connectionReplaceIncomingTitle"),
+        content: tr("connectionReplaceIncomingBody", { target, existing, incoming }),
+        okText: tr("connectionReplaceIncomingOk"),
+        cancelText: tr("functionCancel"),
+        onOk: () => {
+          commitPendingConnection(nodeId, pinName, true);
+        },
+      });
+      return;
+    }
+    const reason = hintKey ? validateConnection(activeGraph, pending, nodeId, pinName) : null;
     if (reason) {
       setConnectionHint(reason);
       if (invalidPinTimerRef.current !== null) {
@@ -1228,42 +1608,16 @@ const EditorApp = () => {
       }, 700);
       return;
     }
-    const edgeId = `${pending.fromNodeId}:${pending.fromPin}->${nodeId}:${pinName}`;
-    setDoc((prev) => {
-      if (prev.graph.edges.some((e) => e.id === edgeId)) {
-        return prev;
-      }
-      return {
-        ...prev,
-        graph: {
-          ...prev.graph,
-          edges: [
-            ...prev.graph.edges,
-            {
-              id: edgeId,
-              fromNodeId: pending.fromNodeId,
-              fromPin: pending.fromPin,
-              toNodeId: nodeId,
-              toPin: pinName,
-            },
-          ],
-        },
-      };
-    });
-    setConnectionHint(null);
-    setPending(null);
-    setHoveredInputPin(null);
-    setSelectedEdgeId(null);
+    commitPendingConnection(nodeId, pinName, false);
   };
 
   const onDeleteEdge = (edgeId: string) => {
-    setDoc((prev) => ({
-      ...prev,
-      graph: {
-        ...prev.graph,
-        edges: prev.graph.edges.filter((e) => e.id !== edgeId),
-      },
-    }));
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        edges: g.edges.filter((e) => e.id !== edgeId),
+      }))
+    );
     setConnectionHint(null);
     setPending(null);
     setSelectedEdgeId(null);
@@ -1278,11 +1632,10 @@ const EditorApp = () => {
   const onEditPinDefaultValue = (nodeId: string, pinName: string, nextValue: string) => {
     // Batch inspector edits into one undo step when input blurs.
     skipPushHistoryRef.current = true;
-    setDoc((prev) => ({
-      ...prev,
-      graph: {
-        ...prev.graph,
-        nodes: prev.graph.nodes.map((n) => {
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        nodes: g.nodes.map((n) => {
           if (n.id !== nodeId) {
             return n;
           }
@@ -1297,8 +1650,8 @@ const EditorApp = () => {
             values: Object.keys(values).length > 0 ? values : undefined,
           };
         }),
-      },
-    }));
+      }))
+    );
   };
   const renderDefaultValueEditor = (nodeId: string, pin: Pin) => {
     const current = selectedLookup.get(nodeId)?.values?.[pin.name] ?? "";
@@ -1348,28 +1701,122 @@ const EditorApp = () => {
       />
     );
   };
-  const focusNodeById = (nodeId: string) => {
-    const node = selectedLookup.get(nodeId);
+  /** Select a single node and pan the viewport so its center is in the canvas view (toolbar “focus” / lifecycle jump / double-click). */
+  const selectNodeAndCenterInViewport = useCallback((nodeId: string) => {
+    dismissContextMenus();
+    const body = getGraphBody(latestDocRef.current, editTargetRef.current);
+    const node = body.nodes.find((n) => n.id === nodeId);
     if (!node || !canvasRef.current) {
       return;
     }
     const rect = canvasRef.current.getBoundingClientRect();
     const centerWorldX = node.x + nodeWidth / 2;
     const centerWorldY = node.y + getNodeHeight(node) / 2;
-    const targetX = rect.width / 2 - centerWorldX * viewport.scale;
-    const targetY = rect.height / 2 - centerWorldY * viewport.scale;
     setSelectedNodeId(nodeId);
     setSelectedNodeIds([nodeId]);
     setSelectedEdgeId(null);
-    setViewport((prev) => ({ ...prev, x: targetX, y: targetY }));
     setConnectionHint(null);
     setPending(null);
-  };
+    setHoveredInputPin(null);
+    setViewport((prev) => ({
+      ...prev,
+      x: rect.width / 2 - centerWorldX * prev.scale,
+      y: rect.height / 2 - centerWorldY * prev.scale,
+    }));
+  }, []);
+
+  const onExplorerDoubleClickLifecycleHook = useCallback(
+    (hook: string) => {
+      setEditTarget({ kind: "main" });
+      setGraphExplorerActive(true);
+      setSelectedVariableIndex(null);
+      setSelectedLifecycleEvent(hook);
+      const id = findEventStartNodeIdForLifecycleHook(latestDocRef.current.graph, hook);
+      window.setTimeout(() => {
+        if (id) {
+          selectNodeAndCenterInViewport(id);
+        } else {
+          setSelectedNodeId(null);
+          setSelectedNodeIds([]);
+          setSelectedEdgeId(null);
+        }
+      }, 0);
+    },
+    [selectNodeAndCenterInViewport]
+  );
+
+  const addLifecycleHookFromConfig = useCallback(
+    (hookName: string) => {
+      const name = hookName.trim();
+      if (!name) {
+        return;
+      }
+      if (!configLifecycleHooks.includes(name)) {
+        Modal.warning({
+          title: tr("lifecycleAddInvalidTitle"),
+          content: tr("lifecycleAddInvalidBody", { name }),
+        });
+        return;
+      }
+      const onGraph = collectLifecycleHookNamesFromGraph(latestDocRef.current.graph);
+      if (onGraph.includes(name)) {
+        Modal.warning({
+          title: tr("lifecycleAddDuplicateTitle"),
+          content: tr("lifecycleAddDuplicateBody", { name }),
+        });
+        return;
+      }
+      setEditTarget({ kind: "main" });
+      const template = nodeDefs.find((d) => d.name === TEMPLATE_EVENT_START);
+      const tmplIn = template?.inputs ?? [];
+      const tmplOut =
+        template?.outputs && template.outputs.length > 0
+          ? template.outputs
+          : [{ name: "exec", type: "exec" }];
+      const inh = latestDocRef.current.inherits?.trim();
+      const bc = inh ? baseClasses.find((b) => b.name === inh) : undefined;
+      const hookDef = bc?.lifecycle.find((h) => h.name === name) ?? { name, outputs: [] };
+      const { inputs, outputs } = mergeEventStartPinsForLifecycle(tmplIn, tmplOut, hookDef);
+      const id = `node_${Math.random().toString(36).slice(2, 8)}`;
+      let y = 120;
+      for (const n of latestDocRef.current.graph.nodes) {
+        y = Math.max(y, n.y + 140);
+      }
+      const x = 80;
+      setDoc((prev) => ({
+        ...prev,
+        graph: {
+          ...prev.graph,
+          nodes: [
+            ...prev.graph.nodes,
+            {
+              id,
+              title: name,
+              template: TEMPLATE_EVENT_START,
+              description: template?.desc ?? "",
+              x,
+              y,
+              inputs,
+              outputs,
+              values: { [NODE_VALUE_LIFECYCLE_HOOK]: name },
+            },
+          ],
+        },
+      }));
+      setSelectedLifecycleEvent(name);
+      setGraphExplorerActive(true);
+      setSelectedVariableIndex(null);
+      setSelectedEdgeId(null);
+      window.setTimeout(() => selectNodeAndCenterInViewport(id), 0);
+    },
+    [baseClasses, configLifecycleHooks, nodeDefs, selectNodeAndCenterInViewport]
+  );
+
   const onFocusFoundNode = () => {
     if (!findNodeId) {
       return;
     }
-    focusNodeById(findNodeId);
+    selectNodeAndCenterInViewport(findNodeId);
   };
 
   useEffect(() => {
@@ -1408,7 +1855,7 @@ const EditorApp = () => {
       }
       if (withMeta && key === "a") {
         e.preventDefault();
-        const all = doc.graph.nodes.map((n) => n.id);
+        const all = activeGraph.nodes.map((n) => n.id);
         setSelectedNodeIds(all);
         setSelectedNodeId(all[0] ?? null);
         setSelectedEdgeId(null);
@@ -1425,11 +1872,11 @@ const EditorApp = () => {
           return;
         }
         e.preventDefault();
-        const selected = doc.graph.nodes.filter((n) => targets.includes(n.id));
+        const selected = activeGraph.nodes.filter((n) => targets.includes(n.id));
         const set = new Set(targets);
-        const linked = doc.graph.edges.filter((edge) => set.has(edge.fromNodeId) && set.has(edge.toNodeId));
+        const linked = activeGraph.edges.filter((edge) => set.has(edge.fromNodeId) && set.has(edge.toNodeId));
         clipboardRef.current = {
-          nodes: selected.map((n) => cloneDocument({ formatVersion: 1, graph: { id: "", name: "", nodes: [n], edges: [], variables: [] }, metadata: {} }).graph.nodes[0]),
+          nodes: selected.map((n) => JSON.parse(JSON.stringify(n)) as BlueprintNode),
           edges: linked.map((edge) => ({ ...edge })),
         };
         return;
@@ -1443,8 +1890,22 @@ const EditorApp = () => {
         pasteIndexRef.current += 1;
         const offset = 28 * pasteIndexRef.current;
         setDoc((prev) => {
-          const usedNodeIds = new Set(prev.graph.nodes.map((n) => n.id));
-          const usedEdgeIds = new Set(prev.graph.edges.map((edge) => edge.id));
+          const usedNodeIds = new Set<string>();
+          const usedEdgeIds = new Set<string>();
+          for (const n of prev.graph.nodes) {
+            usedNodeIds.add(n.id);
+          }
+          for (const edge of prev.graph.edges) {
+            usedEdgeIds.add(edge.id);
+          }
+          for (const fg of prev.functions) {
+            for (const n of fg.nodes) {
+              usedNodeIds.add(n.id);
+            }
+            for (const edge of fg.edges) {
+              usedEdgeIds.add(edge.id);
+            }
+          }
           const idMap = new Map<string, string>();
           const newNodes: BlueprintNode[] = [];
           const newEdges: BlueprintEdge[] = [];
@@ -1459,7 +1920,6 @@ const EditorApp = () => {
             newNodes.push({
               ...node,
               id: nextId,
-              isRoot: false,
               x: node.x + offset,
               y: node.y + offset,
               inputs: node.inputs.map((p) => ({ ...p })),
@@ -1490,14 +1950,11 @@ const EditorApp = () => {
           setSelectedNodeIds(pastedIds);
           setSelectedNodeId(pastedIds[0] ?? null);
           setSelectedEdgeId(null);
-          return {
-            ...prev,
-            graph: {
-              ...prev.graph,
-              nodes: [...prev.graph.nodes, ...newNodes],
-              edges: [...prev.graph.edges, ...newEdges],
-            },
-          };
+          return mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+            ...g,
+            nodes: [...g.nodes, ...newNodes],
+            edges: [...g.edges, ...newEdges],
+          }));
         });
         return;
       }
@@ -1526,7 +1983,7 @@ const EditorApp = () => {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [doc, selectedNodeId, selectedNodeIds, selectedEdgeId, drag]);
+  }, [doc, activeGraph, selectedNodeId, selectedNodeIds, selectedEdgeId, drag]);
 
   const focusIssue = (issue: BuildIssue) => {
     let nodeToCenter: BlueprintNode | null = null;
@@ -1647,6 +2104,31 @@ const EditorApp = () => {
   return (
     <App className="bp-root">
       <div className="bp-main">
+        <MyBlueprintPanel
+          lifecycleHooks={[...displayedLifecycleHooks]}
+          selectedLifecycleHook={selectedLifecycleEvent}
+          lifecycleHooksAvailableToAdd={[...lifecycleHooksAvailableToAdd]}
+          onPickLifecycleHookToAdd={addLifecycleHookFromConfig}
+          addLifecyclePlusTitle={addLifecyclePlusTitle}
+          lifecycleListActive={graphExplorerActive && editTarget.kind === "main"}
+          graphExplorerActive={graphExplorerActive}
+          lifecycleEmptyHint={lifecycleEmptyHint}
+          functionGraphs={functionGraphList}
+          activeFunctionId={editTarget.kind === "function" ? editTarget.id : null}
+          onBackToEventGraph={editTarget.kind === "function" ? onBackToEventGraph : undefined}
+          onSelectFunctionId={onExplorerSelectFunctionId}
+          onAddFunction={onExplorerAddFunction}
+          variables={activeGraph.variables}
+          selectedVariableIndex={selectedVariableIndex}
+          onSelectLifecycleHook={onExplorerSelectLifecycleHook}
+          onLifecycleHookDoubleClick={onExplorerDoubleClickLifecycleHook}
+          onSelectVariable={onExplorerSelectVariable}
+          onAddVariable={onExplorerAddVariable}
+          onRemoveVariable={onExplorerRemoveVariable}
+          onRenameFunction={onExplorerRenameFunction}
+          onDeleteFunction={onExplorerDeleteFunction}
+          t={tr}
+        />
         <div className="bp-inspector">
           <div className="bp-inspector-version">
             <Typography.Text type="secondary">
@@ -1655,8 +2137,8 @@ const EditorApp = () => {
           </div>
           <Typography.Title level={5}>Inspector</Typography.Title>
           <Divider />
-          {selectedNode ? (
-            <div ref={inspectorFormRef}>
+          <div ref={inspectorFormRef}>
+            {selectedNode ? (
               <Form
                 form={form}
                 layout="vertical"
@@ -1667,11 +2149,10 @@ const EditorApp = () => {
                   const description = String(v.description ?? "");
                   // Batch inspector description edits into one undo step on blur.
                   skipPushHistoryRef.current = true;
-                  setDoc((prev) => ({
-                    ...prev,
-                    graph: {
-                      ...prev.graph,
-                      nodes: prev.graph.nodes.map((n) =>
+                  setDoc((prev) =>
+                    mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+                      ...g,
+                      nodes: g.nodes.map((n) =>
                         n.id === selectedNode.id
                           ? {
                             ...n,
@@ -1679,8 +2160,8 @@ const EditorApp = () => {
                           }
                           : n
                       ),
-                    },
-                  }));
+                    }))
+                  );
                 }}
               >
                 <Form.Item label="Node Id">
@@ -1699,6 +2180,42 @@ const EditorApp = () => {
                     onBlur={commitInspectorHistoryIfEnded}
                   />
                 </Form.Item>
+                {selectedNode.template === TEMPLATE_INVOKE_FUNCTION ? (
+                  <Form.Item label={tr("invokeFunctionTargetLabel")}>
+                    <Select
+                      allowClear
+                      placeholder={tr("invokeFunctionTargetPlaceholder")}
+                      value={selectedNode.values?.functionId || undefined}
+                      options={doc.functions.map((fn) => ({
+                        label: `${fn.name} (${fn.id})`,
+                        value: fn.id,
+                      }))}
+                      onChange={(v) => {
+                        skipPushHistoryRef.current = true;
+                        setDoc((prev) =>
+                          mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+                            ...g,
+                            nodes: g.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) {
+                                return n;
+                              }
+                              const values = { ...(n.values ?? {}) };
+                              if (v === null || v === undefined || v === "") {
+                                delete values.functionId;
+                              } else {
+                                values.functionId = String(v);
+                              }
+                              return {
+                                ...n,
+                                values: Object.keys(values).length > 0 ? values : undefined,
+                              };
+                            }),
+                          }))
+                        );
+                      }}
+                    />
+                  </Form.Item>
+                ) : null}
                 <Form.Item
                   label={
                     <div className="bp-inspector-section-header">
@@ -1758,10 +2275,91 @@ const EditorApp = () => {
                   ) : null}
                 </Form.Item>
               </Form>
-            </div>
-          ) : (
-            <Typography.Text type="secondary">Select a node to edit its fields.</Typography.Text>
-          )}
+            ) : selectedVariable && selectedVariableIndex !== null ? (
+              <Form
+                key={`var-${selectedVariableIndex}`}
+                form={variableForm}
+                layout="vertical"
+                initialValues={{ name: selectedVariable.name, type: selectedVariable.type }}
+                onValuesChange={(_c, all) => {
+                  skipPushHistoryRef.current = true;
+                  const i = selectedVariableIndex;
+                  setDoc((prev) =>
+                    mapDocAtTarget(prev, editTargetRef.current, (g) => {
+                      const vars = [...g.variables];
+                      if (!vars[i]) {
+                        return g;
+                      }
+                      let name = String(all.name ?? "").trim();
+                      let type = String(all.type ?? "").trim();
+                      if (!name) {
+                        name = vars[i].name;
+                      }
+                      if (!type) {
+                        type = vars[i].type;
+                      }
+                      vars[i] = { name, type };
+                      return { ...g, variables: vars };
+                    })
+                  );
+                }}
+              >
+                <Typography.Title level={5}>{tr("inspectorVariableSectionTitle")}</Typography.Title>
+                <Form.Item name="name" label={tr("variableNameLabel")}>
+                  <Input
+                    onFocus={() => {
+                      inspectorEditingRef.current = true;
+                    }}
+                    onBlur={commitInspectorHistoryIfEnded}
+                  />
+                </Form.Item>
+                <Form.Item name="type" label={tr("variableTypeLabel")}>
+                  <Input
+                    onFocus={() => {
+                      inspectorEditingRef.current = true;
+                    }}
+                    onBlur={commitInspectorHistoryIfEnded}
+                  />
+                </Form.Item>
+                <Form.Item>
+                  <Button danger onClick={() => onExplorerRemoveVariable(selectedVariableIndex)}>
+                    {tr("variableDeleteButton")}
+                  </Button>
+                </Form.Item>
+              </Form>
+            ) : (
+              <>
+                <Typography.Title level={5}>{tr("inspectorDocumentSection")}</Typography.Title>
+                {editTarget.kind === "function" ? (
+                  <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                    {tr("inspectorEditingFunction", {
+                      name: doc.functions.find((f) => f.id === editTarget.id)?.name ?? editTarget.id,
+                    })}
+                  </Typography.Text>
+                ) : null}
+                <div className="bp-inspector-inherits">
+                  <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                    {tr("inheritsLabel")}
+                  </Typography.Text>
+                  <Select
+                    style={{ width: "100%" }}
+                    allowClear
+                    placeholder={tr("inheritsPlaceholder")}
+                    value={doc.inherits}
+                    disabled={editTarget.kind === "function"}
+                    open={editTarget.kind === "function" ? undefined : inheritsSelectOpen}
+                    onDropdownVisibleChange={
+                      editTarget.kind === "function" ? undefined : handleInheritsDropdownVisibleChange
+                    }
+                    options={baseClasses.map((b) => ({ label: b.name, value: b.name }))}
+                    onChange={handleInheritsSelectChange}
+                  />
+                </div>
+                <Divider />
+                <Typography.Text type="secondary">{tr("inspectorSelectTargetHint")}</Typography.Text>
+              </>
+            )}
+          </div>
           <Divider />
           {buildMessage ? (
             <>
@@ -1786,7 +2384,7 @@ const EditorApp = () => {
             </div>
           ) : null}
           <Typography.Text type="secondary">
-            Graph: {doc.graph.nodes.length} nodes / {doc.graph.edges.length} edges
+            Graph: {activeGraph.nodes.length} nodes / {activeGraph.edges.length} edges
           </Typography.Text>
         </div>
         <div
@@ -1826,7 +2424,7 @@ const EditorApp = () => {
           onContextMenu={(e) => {
             e.preventDefault();
             const target = e.target as HTMLElement | null;
-            if (target?.closest(".bp-node-context-menu") || target?.closest(".bp-canvas-context-menu")) {
+            if (target?.closest(".bp-canvas-context-menu")) {
               return;
             }
             if (target?.closest(".bp-canvas-toolbar")) {
@@ -1859,7 +2457,6 @@ const EditorApp = () => {
               worldX: world.x,
               worldY: world.y,
             });
-            setNodeContextMenu(null);
           }}
           onMouseMove={(e) => {
             if (!pending) {
@@ -1891,6 +2488,12 @@ const EditorApp = () => {
           >
             <div className="bp-canvas-toolbar-rows">
               <div className="bp-canvas-toolbar-row">
+            <span className="bp-canvas-toolbar-context" title={editingContextLabel}>
+              <Typography.Text type="secondary" className="bp-canvas-toolbar-context-text" ellipsis>
+                {editingContextLabel}
+              </Typography.Text>
+            </span>
+            <span className="bp-canvas-toolbar-sep" aria-hidden="true" />
             <button
               type="button"
               className="bp-canvas-toolbar-btn"
@@ -2060,7 +2663,7 @@ const EditorApp = () => {
               className="bp-canvas-toolbar-btn"
               title="Auto Layout"
               aria-label="Auto Layout"
-              disabled={doc.graph.nodes.length < 2}
+              disabled={activeGraph.nodes.length < 2}
               onClick={onAutoLayout}
             >
               <IconAutoLayout />
@@ -2082,7 +2685,7 @@ const EditorApp = () => {
             </div>
           </div>
           <svg className="bp-edges">
-            {doc.graph.edges.map((e) => {
+            {activeGraph.edges.map((e) => {
               const d = edgePath(e);
               if (!d) {
                 return null;
@@ -2110,13 +2713,20 @@ const EditorApp = () => {
             })}
             {pendingEdgePath ? <path d={pendingEdgePath} className="bp-edge bp-edge-pending" /> : null}
           </svg>
-          {doc.graph.nodes.map((node) => (
+          {activeGraph.nodes.map((node) => {
+            const isConfiguredLifecycle =
+              editTarget.kind === "main" && nodeTreeState.configuredLifecycleNodeIds.has(node.id);
+            const lifecycleBlue = isConfiguredLifecycle;
+            const illegalTree = !isConfiguredLifecycle && nodeTreeState.illegalNodes.has(node.id);
+            const legalGreen =
+              !isConfiguredLifecycle && !illegalTree && nodeTreeState.legalNodes.has(node.id);
+            return (
             <Card
               key={node.id}
               size="small"
-              className={`bp-node ${nodeTreeState.rootId === node.id ? "bp-node-root" : ""
-                } ${nodeTreeState.legalNodes.has(node.id) && nodeTreeState.rootId !== node.id ? "bp-node-legal" : ""
-                } ${nodeTreeState.illegalNodes.has(node.id) ? "bp-node-illegal" : ""
+              className={`bp-node ${lifecycleBlue ? "bp-node-root" : ""
+                } ${legalGreen ? "bp-node-legal" : ""
+                } ${illegalTree ? "bp-node-illegal" : ""
                 } ${selectedNodeId === node.id || selectedNodeIds.includes(node.id) ? "bp-node-selected" : ""
                 } ${selectedNodeId === node.id ? "bp-node-selected-primary" : ""
                 } ${issueNodeIds.has(node.id) ? "bp-node-issue" : ""
@@ -2193,22 +2803,17 @@ const EditorApp = () => {
                   });
                 }
               }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (e.target instanceof Element && e.target.closest(".bp-pin")) {
+                  return;
+                }
+                setDrag(null);
+                selectNodeAndCenterInViewport(node.id);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (!canvasRef.current) {
-                  return;
-                }
-                const rect = canvasRef.current.getBoundingClientRect();
-                setCanvasContextMenu(null);
-                setSelectedNodeId(node.id);
-                setSelectedNodeIds([node.id]);
-                setSelectedEdgeId(null);
-                setNodeContextMenu({
-                  nodeId: node.id,
-                  x: e.clientX - rect.left,
-                  y: e.clientY - rect.top,
-                });
               }}
             >
               <div className="bp-node-content">
@@ -2248,11 +2853,12 @@ const EditorApp = () => {
                           if (!pending) {
                             return;
                           }
-                          const reason = validateConnection(doc, pending, node.id, pin.name);
+                          const hk = validateConnectionHintKey(activeGraph, pending, node.id, pin.name);
                           setHoveredInputPin({
                             nodeId: node.id,
                             pinName: pin.name,
-                            canConnect: !reason,
+                            canConnect:
+                              hk === null || hk === "connectionExecInputAlreadyConnected",
                           });
                         }}
                         onMouseMove={(e) => {
@@ -2305,7 +2911,8 @@ const EditorApp = () => {
                 </div>
               </div>
             </Card>
-          ))}
+            );
+          })}
           {pinTypeTooltip ? (
             <div
               className="bp-pin-type-tooltip"
@@ -2324,22 +2931,6 @@ const EditorApp = () => {
                 height: Math.abs(marquee.currentClientY - marquee.startClientY),
               }}
             />
-          ) : null}
-          {nodeContextMenu ? (
-            <div
-              className="bp-node-context-menu"
-              style={{ left: nodeContextMenu.x, top: nodeContextMenu.y }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                className="bp-node-context-menu-item"
-                disabled={!nodeTreeState.canSetAsRoot.has(nodeContextMenu.nodeId)}
-                onClick={() => onSetRootNode(nodeContextMenu.nodeId)}
-              >
-                {tr("setAsRootNode")}
-              </button>
-            </div>
           ) : null}
           {canvasContextMenu ? (
             <div
@@ -2415,6 +3006,22 @@ const EditorApp = () => {
           ) : null}
         </div>
       </div>
+      <Modal
+        title={tr("functionRenameModalTitle")}
+        open={functionRenameModal !== null}
+        onOk={applyFunctionRename}
+        onCancel={() => setFunctionRenameModal(null)}
+        okText={tr("functionRenameOk")}
+        cancelText={tr("functionCancel")}
+        destroyOnClose
+      >
+        <Input
+          value={functionRenameDraft}
+          onChange={(e) => setFunctionRenameDraft(e.target.value)}
+          onPressEnter={() => applyFunctionRename()}
+          placeholder={tr("functionRenamePlaceholder")}
+        />
+      </Modal>
     </App>
   );
 };

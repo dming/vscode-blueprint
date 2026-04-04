@@ -3,7 +3,14 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { runBuild } from "./build/runBuild";
 import { getBlueprintOutputChannel } from "./outputChannel";
-import type { EditorToHostMessage, HostToEditorMessage, NodeDef, NodeDefPin } from "./types";
+import type {
+  BaseClassDef,
+  EditorToHostMessage,
+  HostToEditorMessage,
+  LifecycleHookDef,
+  NodeDef,
+  NodeDefPin,
+} from "./types";
 
 /**
  * Read the Vite-generated HTML for the editor webview entry,
@@ -71,6 +78,43 @@ function parsePinEntry(raw: unknown): NodeDefPin | null {
   return null;
 }
 
+function parseLifecycleHookEntry(raw: unknown): LifecycleHookDef | null {
+  if (typeof raw === "string") {
+    const name = raw.trim();
+    return name ? { name, outputs: [] } : null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const o = raw as Record<string, unknown>;
+  if (typeof o.name !== "string" || !o.name.trim()) {
+    return null;
+  }
+  const name = o.name.trim();
+  const rawOut = o.outputs !== undefined ? o.outputs : o.params;
+  const outputs = Array.isArray(rawOut)
+    ? rawOut.map(parsePinEntry).filter((v): v is NodeDefPin => !!v)
+    : [];
+  return { name, outputs };
+}
+
+function parseLifecycleArray(arr: unknown): LifecycleHookDef[] {
+  if (!Array.isArray(arr)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: LifecycleHookDef[] = [];
+  for (const raw of arr) {
+    const hook = parseLifecycleHookEntry(raw);
+    if (!hook || seen.has(hook.name)) {
+      continue;
+    }
+    seen.add(hook.name);
+    out.push(hook);
+  }
+  return out;
+}
+
 function normalizeNodeDef(raw: unknown): NodeDef | null {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -101,7 +145,58 @@ function normalizeNodeDef(raw: unknown): NodeDef | null {
   };
 }
 
-async function resolveBlueprintConfigUri(workdirUri: vscode.Uri, documentUri: vscode.Uri): Promise<vscode.Uri | null> {
+function parseBaseClasses(parsed: unknown): BaseClassDef[] {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return [];
+  }
+  const bc = (parsed as { baseClasses?: unknown }).baseClasses;
+  if (!bc || typeof bc !== "object") {
+    return [];
+  }
+  const out: BaseClassDef[] = [];
+  if (Array.isArray(bc)) {
+    for (const entry of bc) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      const o = entry as Record<string, unknown>;
+      if (typeof o.name !== "string" || !o.name.trim()) {
+        continue;
+      }
+      const lifecycle = parseLifecycleArray(
+        Array.isArray(o.lifecycle)
+          ? o.lifecycle
+          : Array.isArray(o.lifecycleEvents)
+            ? o.lifecycleEvents
+            : []
+      );
+      out.push({ name: o.name.trim(), lifecycle });
+    }
+    return out;
+  }
+  for (const [name, v] of Object.entries(bc as Record<string, unknown>)) {
+    const key = name.trim();
+    if (!key) {
+      continue;
+    }
+    let lifecycle: LifecycleHookDef[] = [];
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const vo = v as Record<string, unknown>;
+      if (Array.isArray(vo.lifecycle)) {
+        lifecycle = parseLifecycleArray(vo.lifecycle);
+      } else if (Array.isArray(vo.lifecycleEvents)) {
+        lifecycle = parseLifecycleArray(vo.lifecycleEvents);
+      }
+    }
+    out.push({ name: key, lifecycle });
+  }
+  return out;
+}
+
+async function resolveBlueprintConfigUri(
+  workdirUri: vscode.Uri,
+  documentUri: vscode.Uri
+): Promise<vscode.Uri | null> {
   const bpConfig = vscode.workspace.getConfiguration("blueprint");
   const configured = bpConfig.get<string>("nodeDefFile", "").trim();
   if (configured) {
@@ -143,21 +238,29 @@ async function resolveBlueprintConfigUri(workdirUri: vscode.Uri, documentUri: vs
   }
 }
 
-async function loadNodeDefs(workdirUri: vscode.Uri, documentUri: vscode.Uri): Promise<NodeDef[]> {
+async function loadBlueprintEditorConfig(
+  workdirUri: vscode.Uri,
+  documentUri: vscode.Uri
+): Promise<{ nodeDefs: NodeDef[]; baseClasses: BaseClassDef[] }> {
   const cfgUri = await resolveBlueprintConfigUri(workdirUri, documentUri);
-  if (!cfgUri) return [];
+  if (!cfgUri) {
+    return { nodeDefs: [], baseClasses: [] };
+  }
   try {
     const text = Buffer.from(await vscode.workspace.fs.readFile(cfgUri)).toString("utf-8");
     const parsed = JSON.parse(text) as unknown;
     const list = Array.isArray(parsed)
       ? parsed
-      : (parsed as { nodeDefs?: unknown[] })?.nodeDefs && Array.isArray((parsed as { nodeDefs?: unknown[] }).nodeDefs)
+      : (parsed as { nodeDefs?: unknown[] })?.nodeDefs &&
+          Array.isArray((parsed as { nodeDefs?: unknown[] }).nodeDefs)
         ? (parsed as { nodeDefs: unknown[] }).nodeDefs
         : [];
-    return list.map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
+    const nodeDefs = list.map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
+    const baseClasses = parseBaseClasses(parsed);
+    return { nodeDefs, baseClasses };
   } catch (e) {
     getBlueprintOutputChannel().warn(`Failed to load blueprint.config.json: ${String(e)}`);
-    return [];
+    return { nodeDefs: [], baseClasses: [] };
   }
 }
 
@@ -178,21 +281,22 @@ export class TreeEditorProvider implements vscode.CustomTextEditorProvider {
 
     webviewPanel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this._extensionUri, "dist", "webview"),
-        workdirUri,
-      ],
+      localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, "dist", "webview"), workdirUri],
     };
 
     webviewPanel.webview.html = this._getEditorHtml(webviewPanel.webview);
 
-    let cachedNodeDefs = await loadNodeDefs(workdirUri, document.uri);
+    let cachedConfig = await loadBlueprintEditorConfig(workdirUri, document.uri);
     const settingWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(workdirUri, "**/blueprint.config.json")
     );
     const notifySetting = async () => {
-      cachedNodeDefs = await loadNodeDefs(workdirUri, document.uri);
-      const msg: HostToEditorMessage = { type: "settingLoaded", nodeDefs: cachedNodeDefs };
+      cachedConfig = await loadBlueprintEditorConfig(workdirUri, document.uri);
+      const msg: HostToEditorMessage = {
+        type: "settingLoaded",
+        nodeDefs: cachedConfig.nodeDefs,
+        baseClasses: cachedConfig.baseClasses,
+      };
       webviewPanel.webview.postMessage(msg);
     };
     settingWatcher.onDidCreate(notifySetting);
@@ -226,7 +330,8 @@ export class TreeEditorProvider implements vscode.CustomTextEditorProvider {
             filePath: document.uri.fsPath,
             workdir: workdirUri.fsPath,
             extensionVersion: String(this._context.extension.packageJSON.version ?? ""),
-            nodeDefs: cachedNodeDefs,
+            nodeDefs: cachedConfig.nodeDefs,
+            baseClasses: cachedConfig.baseClasses,
             checkExpr: false,
             language: "en",
             nodeLayout: "normal",

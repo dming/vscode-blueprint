@@ -21,6 +21,23 @@ export type NodeDef = {
   defaults?: Record<string, string | number | boolean>;
 };
 
+/**
+ * One lifecycle callback on an inherited base class.
+ * `outputs` use the same pin string format as `nodeDefs` (e.g. `"deltaTime:number"`).
+ * In config JSON you may use `"params"` instead of `"outputs"` (callback parameters appear as Event.Start output pins).
+ * Inputs on Event.Start come only from the `Event.Start` nodeDef template — lifecycle does not declare inputs.
+ */
+export type LifecycleHookDef = {
+  name: string;
+  outputs: NodeDefPin[];
+};
+
+/** Declared in blueprint.config.json: base class name and lifecycle hooks (event graph entries in the editor). */
+export type BaseClassDef = {
+  name: string;
+  lifecycle: LifecycleHookDef[];
+};
+
 // ─── Editor Webview → Extension Host ────────────────────────────────────────
 
 export type EditorToHostMessage =
@@ -41,6 +58,7 @@ export type HostToEditorMessage =
       workdir: string;
       extensionVersion: string;
       nodeDefs: NodeDef[];
+      baseClasses: BaseClassDef[];
       checkExpr: boolean;
       language: "zh" | "en";
       nodeLayout: NodeLayout;
@@ -48,7 +66,7 @@ export type HostToEditorMessage =
       allFiles: string[];
     }
   | { type: "fileChanged"; content: string }
-  | { type: "settingLoaded"; nodeDefs: NodeDef[] }
+  | { type: "settingLoaded"; nodeDefs: NodeDef[]; baseClasses: BaseClassDef[] }
   | {
       type: "buildResult";
       success: boolean;

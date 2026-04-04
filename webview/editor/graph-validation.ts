@@ -1,5 +1,3 @@
-import type { UiTextKey } from "./ui-text";
-
 type PinLike = { name: string; type: string };
 type NodeLike = { id: string; inputs: PinLike[]; outputs: PinLike[] };
 type EdgeLike = {
@@ -8,11 +6,9 @@ type EdgeLike = {
   toNodeId: string;
   toPin: string;
 };
-type DocLike = {
-  graph: {
-    nodes: NodeLike[];
-    edges: EdgeLike[];
-  };
+type GraphSlice = {
+  nodes: NodeLike[];
+  edges: EdgeLike[];
 };
 type PendingConnectionLike = {
   fromNodeId: string;
@@ -33,13 +29,13 @@ export type ConnectionHintKey =
   | "connectionExecInputAlreadyConnected";
 
 export const validateConnectionHintKey = (
-  doc: DocLike,
+  graph: GraphSlice,
   pending: PendingConnectionLike,
   toNodeId: string,
   toPinName: string
 ): ConnectionHintKey | null => {
-  const fromNode = doc.graph.nodes.find((n) => n.id === pending.fromNodeId);
-  const toNode = doc.graph.nodes.find((n) => n.id === toNodeId);
+  const fromNode = graph.nodes.find((n) => n.id === pending.fromNodeId);
+  const toNode = graph.nodes.find((n) => n.id === toNodeId);
   if (!fromNode || !toNode) {
     return "connectionSourceOrTargetNodeMissing";
   }
@@ -52,7 +48,7 @@ export const validateConnectionHintKey = (
     return "connectionPinTypeMismatch";
   }
   if (
-    doc.graph.edges.some(
+    graph.edges.some(
       (e) =>
         e.fromNodeId === pending.fromNodeId &&
         e.fromPin === pending.fromPin &&
@@ -65,19 +61,10 @@ export const validateConnectionHintKey = (
   // MVP rule: each exec input accepts one incoming edge.
   if (
     inPin.type === "exec" &&
-    doc.graph.edges.some((e) => e.toNodeId === toNodeId && e.toPin === toPinName)
+    graph.edges.some((e) => e.toNodeId === toNodeId && e.toPin === toPinName)
   ) {
     return "connectionExecInputAlreadyConnected";
   }
   return null;
 };
 
-export const getRootEligibilityHintKey = (
-  canSetAsRoot: Set<string>,
-  nodeId: string
-): Extract<UiTextKey, "rootNodeNotEligible"> | null => {
-  if (canSetAsRoot.has(nodeId)) {
-    return null;
-  }
-  return "rootNodeNotEligible";
-};
