@@ -346,6 +346,33 @@ export const BlueprintDataList: ReadonlyArray<BlueprintBuiltinEntry> = [
             },
         ],
     },
+    /** Minimal browser/demo node: maps from editor `Debug.Print` via runtime document→asset bridge. */
+    {
+        name: "web_consoleLog",
+        menuPath: "none",
+        type: BPType.Operator,
+        modifiers: {
+            isStatic: true,
+        },
+        properties: [
+            {
+                name: "execute",
+                type: "exec",
+                id: "-1",
+            },
+            {
+                name: "text",
+                type: "string",
+            },
+        ],
+        output: [
+            {
+                name: "then",
+                type: "exec",
+                id: "out_-1",
+            },
+        ],
+    },
     {
         name: "expression",
         menuPath: "system",

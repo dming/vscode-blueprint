@@ -1,8 +1,8 @@
 // Auto-generated from res/y.blueprint.js
 
-import { ExpressTree } from "./ExpressTree";
+import { ExpressTreeBase } from "./ExpressTreeBase";
 
-export class ExpressOrgin extends ExpressTree {
+export class ExpressOrgin extends ExpressTreeBase {
     /** Literal evaluated by `call` (number, string, or mapped constant). */
     private _literal: string | number;
     constructor(value: string | number) {

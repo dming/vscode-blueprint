@@ -12,14 +12,14 @@ This document describes how to reorganize the codebase before and alongside `src
 ### `src/shared/`
 
 - **No** `vscode`, **no** React/DOM, **no** `fs` in module top-level (callers pass JSON strings or parsed `unknown`).
-- **No** `*.test.ts` / Vitest (or any test-only deps) under `shared/` — unit tests for shared modules live under **`src/host/build/`** (or another non-shared test tree) and import shared code via relative paths.
-- Consumed by: **`src/host/`**, **`src/runtime/`** (future), and **`src/webview/`** (via relative imports such as **`../../shared/...`** from editor code).
+- **No** `*.test.ts` / Vitest (or any test-only deps) under `shared/` — unit tests that only need shared APIs live under **`src/host/build/`**; tests that cover **runtime ↔ shared** bridges live under **`src/runtime/`** (e.g. `adapter/documentToRuntimeAsset.test.ts`).
+- Consumed by: **`src/host/`**, **`src/runtime/`**, and **`src/webview/`** (via relative imports such as **`../../shared/...`** from editor code).
 - Holds: blueprint document model, config parsing types/logic, and any types that both editor and runtime need.
 
-### `src/runtime/` (future)
+### `src/runtime/`
 
-- Blueprint execution: context, dispatchers, functions, global events, node evaluators.
-- Depends only on **`src/shared/`** (plus allowed platform APIs if runtime is Node-only or browser-only — document that choice when adding code).
+- Blueprint execution engine (`core/`) plus **`adapter/`** (init, optional fetch loader, **config + document bridges**).
+- Depends only on **`src/shared/`** for parsers/types (plus browser/Node builtins). Does **not** import **`src/host/`**.
 
 ### `src/host/`
 
@@ -39,7 +39,7 @@ This document describes how to reorganize the codebase before and alongside `src
 | Item | Rationale |
 |------|-----------|
 | **`documentModel`** (types, `parseBlueprintDocumentJson`, normalize, template constants, merge helpers) | Single source of truth for `.bp.json` shape for editor, build, and runtime. |
-| **`parseBlueprintConfig`** (or equivalent pure parsers) | Same `blueprint.config.json` semantics everywhere. |
+| **`parseBlueprintConfig`** / **`parseEditorBlueprintConfig`** | Same `blueprint.config.json` semantics everywhere (editor config loader uses the shared parser). |
 | **`blueprint-config.ts`** | Config-facing types: `NodeDef`, `BaseClassDef`, `LifecycleHookDef`, `GlobalEventChannelDef`, etc. |
 | **`editor-protocol.ts`** | Webview ↔ extension message types (`EditorToHostMessage`, `HostToEditorMessage`, `NodeLayout`, …). Shared so **host** and **webview** both import the same definitions without `webview` importing `host/`. |
 
@@ -52,6 +52,24 @@ This document describes how to reorganize the codebase before and alongside `src
 | **`extension.ts`**, **`treeEditorProvider.ts`**, output/log channels | VS Code–specific. |
 
 Runtime may duplicate **tiny** defensive checks (e.g. missing node id) if needed, without importing the full validator.
+
+---
+
+## Runtime asset JSON vs editor `.bp.json`
+
+- **Editor** saves **`*.bp.json`**: `formatVersion`, `graph.nodes` / `edges`, `template`, `values`, `inherits`, etc. (`documentModel`).
+- **Runtime core** consumes **`BlueprintAssetJson`**: `_$ver`, `extends`, `blueprintArr.*.arr` (serialized node/link payloads), optional `functions` — see [`sample/runtime-minimal.asset.json`](../sample/runtime-minimal.asset.json) and comments in [`sample/README.md`](../sample/README.md).
+- **Bridges (in `src/runtime/adapter/`)**:
+  - **`blueprintConfigToRuntimeExtends`**: parsed editor config → `extendsData` for `initBlueprintRuntime`.
+  - **`documentToRuntimeAsset`**: MVP — single linear **exec** chain, templates **`Event.Start`** + **`Debug.Print`** only (maps Print → builtin **`web_consoleLog`** node).
+
+---
+
+## Web runtime playground
+
+- **`examples/web-runtime/`**: second Vite app (port **5174**); **`publicDir`** = repo **`sample/`** so `fetch("/main.bp.json")` works.
+- Scripts: **`npm run dev:web-runtime`**, **`npm run build:web-runtime`**.
+- Demo flow: minimal fixture JSON, then `blueprint.config.json` + `main.bp.json` → `documentToRuntimeAsset` → `BlueprintResource.parse` → call lifecycle method on generated subclass (e.g. `onStart()`).
 
 ---
 
@@ -85,7 +103,7 @@ Editor UI lives under **`src/webview/`** (Vite root).
 3. Move **`src/build/`** → **`src/host/build/`**; update **`extension.ts`**, **`treeEditorProvider.ts`**, **`esbuild`** entry if any script references paths, and all test imports.
 4. Relocate **logger** out of `webview/shared` into shared or host; update **extension** (and webview if it uses the same helper).
 5. Normalize webview imports to **`../../shared/...`** (or the correct relative depth) from each file.
-6. Add empty **`src/runtime/`** with a short `README` or placeholder export stating: **depends only on `shared`; does not import `host/build` validation.**
+6. **`src/runtime/`** holds the execution engine and adapters; keep **`README.md`** aligned with actual entry points and web demo commands.
 7. Enforce folder import boundaries with **`scripts/ts-import.ts`** / **`npm run check:ts-imports`** (wired into **`verify:local`**).
 
 ---
@@ -96,7 +114,7 @@ Editor UI lives under **`src/webview/`** (Vite root).
 - **Root `tsconfig.json`**: `include` should cover `src/shared`, `src/host`, `src/runtime` (webview is excluded there; it uses **`tsconfig.webview.json`**).
 - **Editor Vitest** (`src/webview/…`): uses the same relative imports to `src/shared/` as the editor bundle (no separate alias config required).
 - **`npm run check:ts-imports`**: enforces which top-level folders under `src/` may import which others; also rejects imports of **`src/*.ts`** / **`src/*.tsx`** (no root-level modules).
-- **Convention:** in `shared`: no imports from `host`, `runtime`, `vscode`, `react`, or **vitest**; no test files co-located in `shared/`.
+- **Convention:** in `shared`: no imports from `host`, `runtime`, `vscode`, `react`, or **vitest**; no test files co-located in `shared/`. Runtime tests that need **Vitest** + **`fs`** live next to adapters under **`src/runtime/`**.
 
 ---
 
@@ -106,7 +124,7 @@ Editor UI lives under **`src/webview/`** (Vite root).
 |------|------|
 | `src/shared/` | Document model, config parse, **`editor-protocol`** (IPC types), logging helpers; no VS Code / no UI. |
 | `src/host/` | Extension, webview provider, logging/output; **`host/build/`** = validate / compile / emit / run build. |
-| `src/runtime/` | Future execution engine; **no** dependency on validator module. |
+| `src/runtime/` | Execution engine + adapters; bridges from shared document/config into `BlueprintAssetJson`; **examples/web-runtime** for browser smoke test. |
 | `src/webview/` | Editor UI; consumes `shared` via relative imports. |
 
-After this refactor, adding runtime features is: implement under `src/runtime/`, import types and parsers from `src/shared/`, keep strict build validation in `src/host/build/` only.
+After this refactor, adding runtime features is: implement under `src/runtime/`, import types and parsers from `src/shared/`, keep strict build validation in `src/host/build/` only. Use **`npm run dev:web-runtime`** to validate browser behaviour against **`sample/`** assets.

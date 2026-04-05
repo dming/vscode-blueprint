@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blueprint web runtime</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1rem;
+        max-width: 52rem;
+      }
+      pre#log {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 1rem;
+        overflow: auto;
+        min-height: 12rem;
+        font-size: 0.85rem;
+      }
+      button {
+        padding: 0.4rem 0.75rem;
+        margin-bottom: 0.75rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Blueprint web runtime (minimal)</h1>
+    <p>
+      Loads <code>sample/runtime-minimal.*.json</code>, then <code>sample/main.bp.json</code> with
+      <code>blueprint.config.json</code>. Open DevTools console for <code>[Blueprint]</code> logs.
+    </p>
+    <button type="button" id="run">Run again</button>
+    <pre id="log"></pre>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

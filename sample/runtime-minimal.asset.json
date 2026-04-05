@@ -1,0 +1,29 @@
+{
+  "_$ver": 1,
+  "extends": "DemoHost",
+  "blueprintArr": {
+    "main": {
+      "arr": [
+        {
+          "id": "entry",
+          "cid": "event_onBeginPlay",
+          "target": "DemoHost",
+          "output": {
+            "out_-1": {
+              "infoArr": [{ "nodeId": "log1", "id": "-1" }]
+            }
+          }
+        },
+        {
+          "id": "log1",
+          "cid": "web_consoleLog",
+          "target": "system",
+          "inputValue": {
+            "text": "Hello from minimal runtime asset (sample/runtime-minimal.asset.json)"
+          },
+          "output": {}
+        }
+      ]
+    }
+  }
+}

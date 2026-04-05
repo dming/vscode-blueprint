@@ -1,9 +1,10 @@
 // Auto-generated from res/y.blueprint.js
 
 import { BlueprintFactory } from "./BlueprintFactory";
-import { ExpressTree } from "./ExpressTree";
+import { ExpressTreeBase } from "./ExpressTreeBase";
+import { registerExpressProperty } from "./expressCycleBreaker";
 
-export class ExpressProperty extends ExpressTree {
+export class ExpressProperty extends ExpressTreeBase {
     public propertys: string[];
     public realKey: string | undefined;
     public realObj: unknown;
@@ -14,16 +15,16 @@ export class ExpressProperty extends ExpressTree {
 
     public equal(value: unknown, context: unknown) {
         if (this.realObj) {
-            this.realObj[this.realKey] = value;
+            (this.realObj as Record<string, unknown>)[this.realKey!] = value;
         } else {
-            context[this.propertys[0]] = value;
+            (context as Record<string, unknown>)[this.propertys[0]] = value;
         }
         return value;
     }
 
     public call(context: unknown): unknown {
         let result: unknown = context;
-        this.propertys.forEach((item, index) => {
+        this.propertys.forEach((item) => {
             if (result) {
                 this.realObj = result;
                 const rec = result as Record<PropertyKey, unknown>;
@@ -41,3 +42,5 @@ export class ExpressProperty extends ExpressTree {
         return result;
     }
 }
+
+registerExpressProperty(ExpressProperty);

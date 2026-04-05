@@ -1,11 +1,11 @@
 // Auto-generated from res/y.blueprint.js
 
 import { ExpressDict } from "./ExpressDict";
-import { ExpressTree } from "./ExpressTree";
+import { ExpressTreeBase } from "./ExpressTreeBase";
 import { Precedence } from "./BlueprintDefs";
 
 export class ExpressParse {
-    private _catch: Map<string, ExpressTree>;
+    private _catch: Map<string, ExpressTreeBase>;
     public static brackets: string[] = ["(", ")", "[", "]"];
     public static brackmap: Record<string, string> = {
         ")": "(",
@@ -18,7 +18,7 @@ export class ExpressParse {
 
     public static get instance() {
         if (!this._instance) {
-            ExpressTree.init();
+            ExpressTreeBase.init();
             this._instance = new ExpressParse();
         }
         return this._instance;
@@ -76,7 +76,7 @@ export class ExpressParse {
         return result2;
     }
 
-    public parse(expression: string): ExpressTree | undefined {
+    public parse(expression: string): ExpressTreeBase | undefined {
         if (this._catch.has(expression)) {
             return this._catch.get(expression);
         }
@@ -87,7 +87,7 @@ export class ExpressParse {
             const operator = operationsStack.pop();
             const right = valuesStack.pop();
             const left = valuesStack.pop();
-            const node = ExpressTree.creatreExpressTree(operator);
+            const node = ExpressTreeBase.creatreExpressTree(operator);
             node.left = left;
             node.right = right;
             valuesStack.push(node);
@@ -112,7 +112,7 @@ export class ExpressParse {
                       }
                       operationsStack.pop();
                   } else if (!this.isOperator(token)) {
-                      valuesStack.push(ExpressTree.creatreExpressTree(token));
+                      valuesStack.push(ExpressTreeBase.creatreExpressTree(token));
                   } else {
                       while (
                           operationsStack.length &&

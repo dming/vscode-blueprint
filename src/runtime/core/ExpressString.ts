@@ -1,8 +1,8 @@
 // Auto-generated from res/y.blueprint.js
 
-import { ExpressTree } from "./ExpressTree";
+import { ExpressTreeBase } from "./ExpressTreeBase";
 
-export class ExpressString extends ExpressTree {
+export class ExpressString extends ExpressTreeBase {
     public value: string;
     constructor(value: string) {
         super(value);

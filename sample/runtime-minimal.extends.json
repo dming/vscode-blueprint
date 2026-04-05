@@ -1,0 +1,15 @@
+{
+  "DemoHost": {
+    "name": "DemoHost",
+    "events": [
+      {
+        "name": "onBeginPlay",
+        "id": "event_onBeginPlay",
+        "type": "event",
+        "bpType": "event",
+        "properties": [],
+        "output": [{ "name": "then", "type": "exec", "id": "out_-1" }]
+      }
+    ]
+  }
+}

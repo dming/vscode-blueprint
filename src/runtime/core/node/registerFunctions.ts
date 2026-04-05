@@ -3,6 +3,9 @@ import { BlueprintStaticFun } from "./BlueprintStaticFun";
 
 export function registerBlueprintFunctions() {
     const rf = BlueprintFactory.regFunction.bind(BlueprintFactory);
+    rf("web_consoleLog", function (text: unknown) {
+        console.log("[Blueprint]", text);
+    });
     rf("equal", function (a, b) {
         return a == b;
     });

@@ -7,6 +7,7 @@ This folder is a ready-to-run sample for the Blueprint Editor extension.
 - `main.bp.json`: sample graph to open and edit
 - `multi-root-warning.bp.json`: sample graph that intentionally has 2 root nodes (for warning/highlight smoke test)
 - `blueprint.config.json`: node template definitions used by "Add Node"
+- `runtime-minimal.asset.json` / `runtime-minimal.extends.json`: **runtime engine** smoke-test assets (Laya-style `blueprintArr` + per-class `events`), not the same JSON shape as `*.bp.json` (see `plan/editor-with-runtime.md`).
 
 ## Quick Try
 

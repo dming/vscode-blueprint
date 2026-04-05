@@ -1,5 +1,6 @@
 node_modules/
 dist/
+examples/web-runtime/dist/
 *.vsix
 .DS_Store
 tsconfig.webview.tsbuildinfo
