@@ -27,7 +27,9 @@ export class BlueprintPromise {
 
     public complete() {
         this._completed = true;
-        this._callback && this._callback(this);
+        if (this._callback) {
+            this._callback(this);
+        }
     }
 
     public recover() {

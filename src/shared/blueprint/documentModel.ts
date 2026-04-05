@@ -403,7 +403,6 @@ export const mergeGlobalEventListenOutputs = (
   channelPayload: readonly BlueprintPin[]
 ): BlueprintPin[] =>
   mergeEventStartPinsForLifecycle([], templateOutputs, {
-    name: "__globalEvent",
     outputs: channelPayload,
   }).outputs;
 

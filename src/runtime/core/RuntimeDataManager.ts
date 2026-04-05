@@ -33,16 +33,16 @@ export class RuntimeDataManager {
         this.parmsArray.forEach((value) => {
             value.copyValue(from, to);
         });
-        let a = this.localVarMap.get(from);
+        const a = this.localVarMap.get(from);
         if (a) {
             this.localVarMap.set(to, Object.create(a));
         }
     }
 
-    private _initGetVarObj(runId: number) {
+    private _initGetVarObj(runId: number): Record<string, unknown> {
         let a = this.localVarMap.get(runId);
         if (!a) {
-            a = Object.create(this.localVarObj);
+            a = Object.create(this.localVarObj) as Record<string, unknown>;
             this.localVarMap.set(runId, a);
         }
         return a;
@@ -53,12 +53,12 @@ export class RuntimeDataManager {
     }
 
     public getVar(name: string, runId: number) {
-        let varObj = this._initGetVarObj(runId);
+        const varObj = this._initGetVarObj(runId);
         return varObj[name];
     }
 
     public setVar(name: string, value: unknown, runId: number) {
-        let varObj = this._initGetVarObj(runId);
+        const varObj = this._initGetVarObj(runId);
         return (varObj[name] = value);
     }
 
@@ -91,17 +91,17 @@ export class RuntimeDataManager {
             if (!this.pinMap) {
                 this.pinMap = new Map();
             }
-            let dataMap = this.nodeMap;
-            let pinMap = this.pinMap;
+            const dataMap = this.nodeMap;
+            const pinMap = this.pinMap;
             nodeMap.forEach((value, key) => {
                 if (dataMap.get(key)) {
                     return;
                 }
-                let cls = BlueprintFactory.getBPContextData(value.type);
-                let rdata = new cls();
+                const cls = BlueprintFactory.getBPContextData(value.type);
+                const rdata = new cls();
                 dataMap.set(key, rdata);
                 value.pins.forEach((pin) => {
-                    let pinData = new RuntimePinData();
+                    const pinData = new RuntimePinData();
                     pinData.name = pin.name;
                     if (pin.value != undefined && pin.linkTo.length == 0) {
                         pinData.initValue(pin.value);
@@ -116,7 +116,7 @@ export class RuntimeDataManager {
                 });
             });
             if (localVarMap) {
-                for (let key in localVarMap) {
+                for (const key in localVarMap) {
                     const slot = localVarMap[key];
                     this.localVarObj[slot.name] = slot.value;
                 }

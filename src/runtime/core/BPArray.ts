@@ -1,15 +1,15 @@
 // Auto-generated from res/y.blueprint.js
 
 export class BPArray {
-    public static getItem(arr, index) {
+    public static getItem(arr: unknown[], index: number): unknown {
         return arr[index];
     }
 
-    public static setItem(arr, index, value) {
+    public static setItem(arr: unknown[], index: number, value: unknown): void {
         arr[index] = value;
     }
 
-    public push(item) {
+    public push(_item: unknown) {
         return 0;
     }
 
@@ -17,7 +17,7 @@ export class BPArray {
         return null;
     }
 
-    public splice(start, deleteCount) {
+    public splice(_start: unknown, _deleteCount: unknown) {
         return null;
     }
 
@@ -25,15 +25,15 @@ export class BPArray {
         return null;
     }
 
-    public unshift(item) {
+    public unshift(_item: unknown) {
         return null;
     }
 
-    public join(separator) {
+    public join(_separator: unknown) {
         return "";
     }
 
-    public concat(item) {
+    public concat(_item: unknown) {
         return null;
     }
 }

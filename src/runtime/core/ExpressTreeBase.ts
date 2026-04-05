@@ -1,10 +1,6 @@
 // Auto-generated from res/y.blueprint.js
 // Split from ExpressTree to break circular imports with ExpressProperty / ExpressParse.
 
-import { ExpressOrgin } from "./ExpressOrgin";
-import { ExpressString } from "./ExpressString";
-import { Precedence } from "./BlueprintDefs";
-
 export class ExpressTreeBase {
     public _inited: boolean | undefined;
     public left: ExpressTreeBase | null;
@@ -21,7 +17,7 @@ export class ExpressTreeBase {
     };
     public static operatorPriority: Record<string, ExpressTreeBase> = {};
     public static _inited: boolean | undefined = false;
-    public call(context: unknown): unknown {
+    public call(_context: unknown): unknown {
         return null;
     }
 
@@ -42,7 +38,7 @@ export class ExpressTreeBase {
         } else {
             try {
                 return JSON.parse(value);
-            } catch (e) {
+            } catch (_e) {
                 return value;
             }
         }
@@ -58,7 +54,7 @@ export class ExpressTreeBase {
     }
 
     public static isString(token: string): string | false {
-        let result = ExpressTreeBase.strReg.exec(token);
+        const result = ExpressTreeBase.strReg.exec(token);
         if (result) {
             return result[2];
         }
@@ -95,7 +91,7 @@ export class ExpressTreeBase {
     }
 
     public clone() {
-        let node = new ExpressTreeBase(this.value);
+        const node = new ExpressTreeBase(this.value);
         if (this.left) {
             node.left = this.left.clone();
         }
@@ -107,7 +103,7 @@ export class ExpressTreeBase {
     }
 
     /** Assigned in `expressTreeOps.ts` after subclass registration. */
-    public static parseProperty!: (express: string) => ExpressTreeBase;
-    public static creatreExpressTree!: (express: string) => ExpressTreeBase;
-    public static init!: (this: typeof ExpressTreeBase) => void;
+    public static parseProperty = undefined as unknown as (express: string) => ExpressTreeBase;
+    public static creatreExpressTree = undefined as unknown as (express: string) => ExpressTreeBase;
+    public static init = undefined as unknown as (this: typeof ExpressTreeBase) => void;
 }

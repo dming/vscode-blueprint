@@ -1,39 +1,47 @@
 import { BlueprintFactory } from "../BlueprintFactory";
 import { BlueprintStaticFun } from "./BlueprintStaticFun";
 
+/** Host shape for `event_*` builtins registered with `isMember: true`. */
+interface BlueprintEventBuiltinHost {
+    on(eventName: string, caller: unknown, cb: (...args: unknown[]) => unknown): void;
+    off(eventName: string, caller: unknown, cb: (...args: unknown[]) => unknown): void;
+    offAll(eventName: string): void;
+    event(eventName: string, args: unknown[]): void;
+}
+
 export function registerBlueprintFunctions() {
     const rf = BlueprintFactory.regFunction.bind(BlueprintFactory);
     rf("web_consoleLog", function (text: unknown) {
         console.log("[Blueprint]", text);
     });
-    rf("equal", function (a, b) {
+    rf("equal", function (a: unknown, b: unknown) {
         return a == b;
     });
-    rf("and", function (a, b) {
+    rf("and", function (a: unknown, b: unknown) {
         return !!a && !!b;
     });
-    rf("or", function (a, b) {
+    rf("or", function (a: unknown, b: unknown) {
         return !!a || !!b;
     });
-    rf("not", function (a) {
+    rf("not", function (a: unknown) {
         return !a;
     });
-    rf("isUndefined", function (a) {
+    rf("isUndefined", function (a: unknown) {
         return a === undefined;
     });
-    rf("isNull", function (a) {
+    rf("isNull", function (a: unknown) {
         return a == null;
     });
-    rf("isNaN", function (a) {
-        return isNaN(a);
+    rf("isNaN", function (a: unknown) {
+        return Number.isNaN(Number(a));
     });
-    rf("toString", function (a) {
+    rf("toString", function (a: unknown) {
         return String(a);
     });
-    rf("toNumber", function (a) {
+    rf("toNumber", function (a: unknown) {
         return Number(a);
     });
-    rf("toBoolean", function (a) {
+    rf("toBoolean", function (a: unknown) {
         return !!a;
     });
     rf("branch", BlueprintStaticFun.branch);
@@ -43,29 +51,29 @@ export function registerBlueprintFunctions() {
     rf("forLoopWithBreak", BlueprintStaticFun.forLoopWithBreak);
     rf(
         "event_on",
-        function (eventName, cb) {
-            this.on(eventName, this, cb);
+        function (this: BlueprintEventBuiltinHost, eventName: unknown, cb: unknown) {
+            this.on(eventName as string, this, cb as (...args: unknown[]) => unknown);
         },
         true,
     );
     rf(
         "event_call",
-        function (eventName, ...args) {
-            this.event(eventName, args);
+        function (this: BlueprintEventBuiltinHost, eventName: unknown, ...args: unknown[]) {
+            this.event(eventName as string, args);
         },
         true,
     );
     rf(
         "event_off",
-        function (eventName, cb) {
-            this.off(eventName, this, cb);
+        function (this: BlueprintEventBuiltinHost, eventName: unknown, cb: unknown) {
+            this.off(eventName as string, this, cb as (...args: unknown[]) => unknown);
         },
         true,
     );
     rf(
         "event_offAll",
-        function (eventName, cb) {
-            this.offAll(eventName);
+        function (this: BlueprintEventBuiltinHost, eventName: unknown, _cb: unknown) {
+            this.offAll(eventName as string);
         },
         true,
     );

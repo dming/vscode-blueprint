@@ -9,7 +9,6 @@ import type { BluePrintBlock } from "../BluePrintBlock";
 import type { RuntimeDataManager } from "../RuntimeDataManager";
 
 export class BlueprintSequenceNode extends BlueprintComplexNode {
-    public outExecutes: BlueprintPinRuntime[];
     public next(
         context: BlueprintExecuteNode,
         runtimeDataMgr: RuntimeDataManager,
@@ -19,23 +18,23 @@ export class BlueprintSequenceNode extends BlueprintComplexNode {
         runId: number,
         _fromPin: BlueprintPinRuntime | null,
     ): BlueprintPromise | null {
-        let arr = [];
+        const arr: Promise<unknown>[] = [];
         for (let i = 0, n = this.outExecutes.length; i < n; i++) {
-            let item = this.outExecutes[i];
-            let pin = item.linkTo[0];
+            const item = this.outExecutes[i];
+            const pin = item.linkTo[0];
             if (pin) {
-                let cb;
-                let result;
+                let cb: ((value?: unknown) => void) | undefined;
+                let result: boolean | undefined;
                 if (context.debuggerPause) {
                     result = false;
-                    let callback = (owner) => {
+                    const callback = (owner?: unknown) => {
                         if (context.debuggerPause) {
                             context.pushBack(owner, callback);
                         } else {
                             result = runner.runByContext(
                                 context,
                                 runtimeDataMgr,
-                                owner,
+                                owner as BlueprintPinRuntime["owner"],
                                 enableDebugPause,
                                 () => {
                                     if (result === false && cb) {
@@ -71,7 +70,7 @@ export class BlueprintSequenceNode extends BlueprintComplexNode {
                     );
                 }
                 if (result === false) {
-                    let promise = new Promise((resolve) => {
+                    const promise = new Promise((resolve) => {
                         cb = resolve;
                     });
                     arr.push(promise);
@@ -79,8 +78,8 @@ export class BlueprintSequenceNode extends BlueprintComplexNode {
             }
         }
         if (arr.length > 0) {
-            let promise = BlueprintPromise.create();
-            Promise.all(arr).then((value) => {
+            const promise = BlueprintPromise.create();
+            Promise.all(arr).then((_value) => {
                 promise.nid = BlueprintConst.NULL_NODE;
                 promise.complete();
                 promise.recover();
@@ -91,5 +90,5 @@ export class BlueprintSequenceNode extends BlueprintComplexNode {
         }
     }
 
-    public setFunction(fun) {}
+    public setFunction(_fun: unknown) {}
 }

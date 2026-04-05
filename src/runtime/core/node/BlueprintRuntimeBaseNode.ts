@@ -55,19 +55,19 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
     }
 
     public emptyExecute(
-        context: BlueprintExecuteNode,
-        runtimeDataMgr: RuntimeDataManager,
-        fromExecute: boolean,
-        runner: BluePrintBlock,
-        enableDebugPause: boolean,
-        runId: number,
-        fromPin: BlueprintPinRuntime | null,
+        _context: BlueprintExecuteNode,
+        _runtimeDataMgr: RuntimeDataManager,
+        _fromExecute: boolean,
+        _runner: BluePrintBlock,
+        _enableDebugPause: boolean,
+        _runId: number,
+        _fromPin: BlueprintPinRuntime | null,
     ) {
         return null;
     }
 
     public createPin(def: BlueprintPinJson) {
-        let pin = new BlueprintPinRuntime();
+        const pin = new BlueprintPinRuntime();
         pin.parse(def);
         return pin;
     }
@@ -79,16 +79,13 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
         caller: unknown,
         parmsArray: unknown[],
         runId: number,
-        fromPin: BlueprintPinRuntime | null,
+        _fromPin: BlueprintPinRuntime | null,
     ) {
-        return context.executeFun(
-            this.nativeFun,
-            this.returnValue,
-            runtimeDataMgr,
-            caller,
-            parmsArray,
-            runId,
-        );
+        const nf = this.nativeFun;
+        if (nf == null) {
+            return undefined;
+        }
+        return context.executeFun(nf, this.returnValue, runtimeDataMgr, caller, parmsArray, runId);
     }
 
     public collectParam(
@@ -99,11 +96,18 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
         runId: number,
         prePin: BlueprintPinRuntime | null,
     ) {
-        let _parmsArray = runtimeDataMgr.getDataById(this.nid).getParamsArray(runId);
+        const nodeData = runtimeDataMgr.getDataById(this.nid);
+        if (!nodeData) {
+            throw new Error(`collectParam: missing RuntimeNodeData for nid ${String(this.nid)}`);
+        }
+        const _parmsArray = nodeData.getParamsArray(runId);
         _parmsArray.length = 0;
         for (let i = 0, n = inputPins.length; i < n; i++) {
             const curInput = inputPins[i];
-            let from = curInput.linkTo[0];
+            if (!curInput) {
+                continue;
+            }
+            const from = curInput.linkTo[0];
             if (from) {
                 if (!context.readCache) {
                     from.step(context, runtimeDataMgr, runner, runId, prePin);
@@ -118,7 +122,7 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
     }
 
     private _checkRun(parmsArray: unknown[]) {
-        let promiseList;
+        let promiseList: Promise<unknown>[] | undefined;
         parmsArray.forEach((parm) => {
             if (parm instanceof Promise) {
                 if (!promiseList) promiseList = [];
@@ -141,8 +145,8 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
         runId: number,
         fromPin: BlueprintPinRuntime | null,
         prePin: BlueprintPinRuntime | null,
-    ) {
-        let _parmsArray = this.collectParam(
+    ): unknown {
+        const _parmsArray = this.collectParam(
             context,
             runtimeDataMgr,
             this.inPutParmPins,
@@ -154,11 +158,13 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
             context.parmFromOutPut(this.outPutParmPins, runtimeDataMgr, _parmsArray);
             context.parmFromCustom(_parmsArray, runId, "runId");
         }
-        let promise = this._checkRun(_parmsArray);
+        const promise = this._checkRun(_parmsArray);
         if (promise) {
-            let bPromise = BlueprintPromise.create();
-            this.returnValue && runtimeDataMgr.setPinData(this.returnValue, promise, runId);
-            promise.then((value) => {
+            const bPromise = BlueprintPromise.create();
+            if (this.returnValue) {
+                runtimeDataMgr.setPinData(this.returnValue, promise, runId);
+            }
+            promise.then((_value) => {
                 if (bPromise.hasCallBack()) {
                     bPromise.nid = this.nid;
                     bPromise.pin = fromPin;
@@ -191,11 +197,11 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
         if (this.nativeFun) {
             let caller = null;
             if (this.isMember) {
-                let temp = _parmsArray.shift();
+                const temp = _parmsArray.shift();
                 this.checkTarget(temp);
                 caller = temp === undefined ? context.getSelf() : temp;
             }
-            let result = this.executeFun(
+            const result = this.executeFun(
                 context,
                 runtimeDataMgr,
                 runner,
@@ -205,9 +211,11 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
                 fromPin,
             );
             if (result instanceof Promise) {
-                let promise = BlueprintPromise.create();
+                const promise = BlueprintPromise.create();
                 result.then((value) => {
-                    this.returnValue && runtimeDataMgr.setPinData(this.returnValue, value, runId);
+                    if (this.returnValue) {
+                        runtimeDataMgr.setPinData(this.returnValue, value, runId);
+                    }
                     let pin = this.next(
                         context,
                         runtimeDataMgr,
@@ -216,12 +224,12 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
                         enableDebugPause,
                         runId,
                         fromPin,
-                    );
+                    ) as BlueprintPinRuntime | null | undefined;
                     if (pin) {
                         pin = pin.linkTo[0];
                         promise.nid = pin ? pin.owner.nid : BlueprintConst.NULL_NODE;
                     }
-                    promise.pin = pin;
+                    promise.pin = pin ?? null;
                     promise.prePin = prePin;
                     promise.complete();
                     promise.recover();
@@ -237,7 +245,7 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
 
     public checkTarget(temp: unknown) {
         if (temp === undefined) {
-            let pin = this.inPutParmPins.filter(
+            const pin = this.inPutParmPins.filter(
                 (pin) => pin.nid == "-2" && pin.linkTo.length > 0,
             )[0];
             if (pin) {
@@ -247,14 +255,14 @@ export class BlueprintRuntimeBaseNode extends BlueprintNode {
     }
 
     public next(
-        context: BlueprintExecuteNode,
-        runtimeDataMgr: RuntimeDataManager,
-        parmsArray: unknown[],
-        runner: BluePrintBlock,
-        enableDebugPause: boolean,
-        runId: number,
-        fromPin: BlueprintPinRuntime | null,
-    ) {
+        _context: BlueprintExecuteNode,
+        _runtimeDataMgr: RuntimeDataManager,
+        _parmsArray: unknown[],
+        _runner: BluePrintBlock,
+        _enableDebugPause: boolean,
+        _runId: number,
+        _fromPin: BlueprintPinRuntime | null,
+    ): unknown {
         return null;
     }
 

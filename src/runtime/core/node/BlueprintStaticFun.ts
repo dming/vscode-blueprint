@@ -37,11 +37,14 @@ export class BlueprintStaticFun {
         if (!target) {
             return context.getVar(name);
         } else {
-            let realContext = (target as any)[BlueprintFactory.contextSymbol];
+            const bag = target as Record<PropertyKey, unknown>;
+            const realContext = bag[BlueprintFactory.contextSymbol] as
+                | { getVar: (n: string) => unknown }
+                | undefined;
             if (realContext) {
                 return realContext.getVar(name);
             } else {
-                return (target as any)[name];
+                return (target as Record<string, unknown>)[name];
             }
         }
     }
@@ -59,11 +62,14 @@ export class BlueprintStaticFun {
         if (!target) {
             context.setVar(name, value);
         } else {
-            let realContext = (target as any)[BlueprintFactory.contextSymbol];
+            const bag = target as Record<PropertyKey, unknown>;
+            const realContext = bag[BlueprintFactory.contextSymbol] as
+                | { setVar: (n: string, v: unknown) => void }
+                | undefined;
             if (realContext) {
                 realContext.setVar(name, value);
             } else {
-                (target as any)[name] = value;
+                (target as Record<string, unknown>)[name] = value;
             }
         }
         return value;
@@ -97,7 +103,7 @@ export class BlueprintStaticFun {
         prePin: BlueprintPinRuntime | null,
         runId: number,
     ) {
-        let curRunId = runner.getRunID();
+        const curRunId = runner.getRunID();
         parms.forEach((item, index) => {
             runtimeDataMgr.setPinData(outPutParmPins[index], item, curRunId);
         });
@@ -125,7 +131,7 @@ export class BlueprintStaticFun {
         runId: number,
         array: unknown[],
     ) {
-        let nextPin = outExecutes[0].linkTo[0];
+        const nextPin = outExecutes[0].linkTo[0];
         if (nextPin) {
             array.forEach((item, index) => {
                 BlueprintStaticFun.runBranch(
@@ -157,14 +163,20 @@ export class BlueprintStaticFun {
         let breakNode;
         if (inputExecute == inputExecutes[1]) {
             breakNode = runtimeDataMgr.getRuntimePinById(inputExecute.id);
+            if (!breakNode) {
+                return null;
+            }
             if (breakNode.getValue(runId) == ERunStat.running) {
                 breakNode.initValue(ERunStat.break);
             }
             return null;
         }
         breakNode = runtimeDataMgr.getRuntimePinById(inputExecutes[1].id);
+        if (!breakNode) {
+            return null;
+        }
         breakNode.initValue(ERunStat.running);
-        let nextPin = outExecutes[0].linkTo[0];
+        const nextPin = outExecutes[0].linkTo[0];
         if (nextPin) {
             for (let i = 0; i < array.length; i++) {
                 BlueprintStaticFun.runBranch(
@@ -200,7 +212,7 @@ export class BlueprintStaticFun {
         step = 1,
     ) {
         if (step <= 0) step = 1;
-        let nextPin = outExecutes[0].linkTo[0];
+        const nextPin = outExecutes[0].linkTo[0];
         if (nextPin) {
             for (let i = firstIndex; i < lastIndex; i += step) {
                 BlueprintStaticFun.runBranch(
@@ -234,15 +246,21 @@ export class BlueprintStaticFun {
         let breakNode;
         if (inputExecute == inputExecutes[1]) {
             breakNode = runtimeDataMgr.getRuntimePinById(inputExecute.id);
+            if (!breakNode) {
+                return null;
+            }
             if (breakNode.getValue(runId) == ERunStat.running) {
                 breakNode.initValue(ERunStat.break);
             }
             return null;
         } else {
             breakNode = runtimeDataMgr.getRuntimePinById(inputExecutes[1].id);
+            if (!breakNode) {
+                return null;
+            }
             breakNode.initValue(ERunStat.running);
             if (step <= 0) step = 1;
-            let nextPin = outExecutes[0].linkTo[0];
+            const nextPin = outExecutes[0].linkTo[0];
             if (nextPin) {
                 for (let i = firstIndex; i < lastIndex; i += step) {
                     BlueprintStaticFun.runBranch(
@@ -270,7 +288,7 @@ export class BlueprintStaticFun {
     }
 
     public static waitTime(second: number) {
-        return new Promise((resolve, rejects) => {
+        return new Promise((resolve, _reject) => {
             setTimeout(() => {
                 resolve(true);
             }, second * 1000);
@@ -278,7 +296,7 @@ export class BlueprintStaticFun {
     }
 
     public static sleep(time: number) {
-        return new Promise((resolve, rejects) => {
+        return new Promise((resolve, _reject) => {
             setTimeout(() => {
                 resolve(undefined);
             }, time);
@@ -286,12 +304,17 @@ export class BlueprintStaticFun {
     }
 
     public static runExpress(express: string, a: unknown, b: unknown, c: unknown) {
-        let expressTree = ExpressParse.instance.parse(express);
-        let context = { a: a, b: b, c: c, Math: Math };
+        const expressTree = ExpressParse.instance.parse(express);
+        const context = { a: a, b: b, c: c, Math: Math };
+        if (!expressTree) {
+            return undefined;
+        }
         return expressTree.call(context);
     }
 
     public static destroy(obj: { destroy?: () => void } | null | undefined) {
-        if (obj) obj.destroy();
+        if (obj?.destroy) {
+            obj.destroy();
+        }
     }
 }

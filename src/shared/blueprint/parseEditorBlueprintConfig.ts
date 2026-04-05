@@ -4,12 +4,7 @@
  */
 
 import type { BaseClassDef, GlobalEventChannelDef, LifecycleHookDef, NodeDef, NodeDefPin } from "../blueprint-config";
-import {
-  DEFAULT_GLOBAL_EVENT_EMIT_TEMPLATE,
-  DEFAULT_GLOBAL_EVENT_LISTEN_TEMPLATE,
-  parseGlobalEventChannels,
-  parseRuntimeGlobalEventTemplates,
-} from "./parseBlueprintConfig";
+import { parseGlobalEventChannels, parseRuntimeGlobalEventTemplates } from "./parseBlueprintConfig";
 
 export type EditorBlueprintConfig = {
   nodeDefs: NodeDef[];

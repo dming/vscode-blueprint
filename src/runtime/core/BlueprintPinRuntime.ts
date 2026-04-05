@@ -7,7 +7,7 @@ import type { BluePrintBlock } from "./BluePrintBlock";
 import type { RuntimeDataManager } from "./RuntimeDataManager";
 
 export class BlueprintPinRuntime extends BlueprintPin {
-    public linkTo: BlueprintPinRuntime[];
+    public declare linkTo: BlueprintPinRuntime[];
     public owner!: BlueprintRuntimeBaseNode;
     public value: unknown;
     public step(

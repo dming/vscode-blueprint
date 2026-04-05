@@ -1,15 +1,15 @@
 // Auto-generated from res/y.blueprint.js
 
 export class BPObject {
-    public static getItem(obj, key) {
+    public static get(obj: Record<string, unknown>, key: string): unknown {
         return obj[key];
     }
 
-    public static setItem(obj, key, value) {
+    public static set(obj: Record<string, unknown>, key: string, value: unknown): void {
         obj[key] = value;
     }
 
-    public static deleteItem(obj, key) {
-        delete obj[key];
+    public static has(obj: Record<string, unknown>, key: string): boolean {
+        return Object.prototype.hasOwnProperty.call(obj, key);
     }
 }

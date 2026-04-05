@@ -254,7 +254,7 @@ function emitNodeLine(node: BlueprintNode, refs: EmitRefs): string {
     const a = node.values?.a ?? "0";
     const b = node.values?.b ?? "0";
     const slotKey = sanitizeIdent(node.id);
-    return `${ind}ctx.slots[${escapeStringLiteral(node.id)}] = Number(${escapeStringLiteral(String(a))}) + Number(${escapeStringLiteral(String(b))}); // ${node.title}`;
+    return `${ind}ctx.slots[${escapeStringLiteral(node.id)}] = Number(${escapeStringLiteral(String(a))}) + Number(${escapeStringLiteral(String(b))}); // ${node.title} (${slotKey})`;
   }
   if (t === "Print" || node.title === "Print") {
     const text = node.values?.text ?? "";

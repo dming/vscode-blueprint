@@ -8,12 +8,7 @@ import type { BluePrintBlock } from "../BluePrintBlock";
 import type { RuntimeDataManager } from "../RuntimeDataManager";
 
 export class BluePrintBlockNode extends BlueprintComplexNode {
-    public deal: (...args: unknown[]) => unknown;
-    public funcode: string | undefined;
-    public inExecutes: BlueprintPinRuntime[];
-    public nativeFun: ((...args: unknown[]) => unknown) | null;
-    public outExecutes: BlueprintPinRuntime[];
-    public outPutParmPins: BlueprintPinRuntime[];
+    public deal!: (...args: unknown[]) => unknown;
     public next(
         context: BlueprintExecuteNode,
         runtimeDataMgr: RuntimeDataManager,
@@ -23,7 +18,7 @@ export class BluePrintBlockNode extends BlueprintComplexNode {
         runId: number,
         fromPin: BlueprintPinRuntime | null,
     ): BlueprintPinRuntime | BlueprintPromise | null {
-        let result = this.deal(
+        const result = this.deal(
             fromPin,
             this.inExecutes,
             this.outExecutes,

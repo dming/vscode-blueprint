@@ -4,6 +4,7 @@ import type { BlueprintNode } from "./BlueprintNode";
 import { BlueprintPinRuntime } from "./BlueprintPinRuntime";
 import { BlueprintRunBase } from "./BlueprintRunBase";
 import type { BlueprintRuntimeBaseNode } from "./node/BlueprintRuntimeBaseNode";
+import type { BlueprintNativeCallable } from "./BlueprintDataTypes";
 import { RuntimeDataManager, type BlueprintVariableMap } from "./RuntimeDataManager";
 import type { BluePrintBlock } from "./BluePrintBlock";
 
@@ -46,7 +47,7 @@ export class BlueprintExecuteNode extends BlueprintRunBase {
         this.runtimeDataMgrMap = new Map();
     }
 
-    public finish(runtime: BlueprintRunBase) {}
+    public finish(_runtime: BlueprintRunBase) {}
 
     public getDataManagerByID(id: string | number): RuntimeDataManager | undefined {
         return this.runtimeDataMgrMap.get(id);
@@ -60,7 +61,10 @@ export class BlueprintExecuteNode extends BlueprintRunBase {
     ) {
         let runtimeDataMgr = this.runtimeDataMgrMap.get(key);
         if (!runtimeDataMgr) {
-            let parent = this.runtimeDataMgrMap.get(parentId);
+            const parent =
+                parentId !== undefined && parentId !== null
+                    ? this.runtimeDataMgrMap.get(parentId)
+                    : undefined;
             if (parent) {
                 runtimeDataMgr = parent;
             } else {
@@ -71,7 +75,7 @@ export class BlueprintExecuteNode extends BlueprintRunBase {
         }
     }
 
-    public pushBack(executeNode: unknown, callback: (owner?: unknown) => void) {
+    public pushBack(_executeNode: unknown, _callback: (owner?: unknown) => void) {
         debugger;
     }
 
@@ -85,12 +89,12 @@ export class BlueprintExecuteNode extends BlueprintRunBase {
     }
 
     public setVar(name: string, value: unknown) {
-        let obj = this.varDefineMap.get(name) ? this.vars : this.owner;
+        const obj = this.varDefineMap.get(name) ? this.vars : this.owner;
         obj[name] = value;
     }
 
     public getVar(name: string) {
-        let obj = this.varDefineMap.get(name) ? this.vars : this.owner;
+        const obj = this.varDefineMap.get(name) ? this.vars : this.owner;
         return obj[name];
     }
 
@@ -100,11 +104,11 @@ export class BlueprintExecuteNode extends BlueprintRunBase {
 
     public beginExecute(
         runtimeNode: BlueprintRuntimeBaseNode,
-        runner: BluePrintBlock,
-        enableDebugPause: boolean,
-        fromPin: BlueprintPinRuntime | null,
-        parmsArray: unknown[],
-        prePin: BlueprintPinRuntime | null,
+        _runner: BluePrintBlock,
+        _enableDebugPause: boolean,
+        _fromPin: BlueprintPinRuntime | null,
+        _parmsArray: unknown[],
+        _prePin: BlueprintPinRuntime | null,
     ): null {
         if (this.listNode.indexOf(runtimeNode) == -1) {
             this.listNode.push(runtimeNode);
@@ -114,9 +118,9 @@ export class BlueprintExecuteNode extends BlueprintRunBase {
         }
     }
 
-    public endExecute(runtimeNode: BlueprintRuntimeBaseNode) {}
+    public endExecute(_runtimeNode: BlueprintRuntimeBaseNode) {}
 
-    public parmFromCustom(parmsArray: unknown[], parm: unknown, parmname: string | number) {
+    public parmFromCustom(parmsArray: unknown[], parm: unknown, _parmname: string | number) {
         parmsArray.push(parm);
     }
 
@@ -145,25 +149,27 @@ export class BlueprintExecuteNode extends BlueprintRunBase {
         parmsArray: unknown[],
     ) {
         for (let i = 0, n = outPutParmPins.length; i < n; i++) {
-            let out = outPutParmPins[i];
+            const out = outPutParmPins[i];
             parmsArray.push(runtimeDataMgr.getRuntimePinById(out.id));
         }
     }
 
     public executeFun(
-        nativeFun: (...args: unknown[]) => unknown,
+        nativeFun: BlueprintNativeCallable,
         returnResult: BlueprintPinRuntime | null,
         runtimeDataMgr: RuntimeDataManager,
         caller: unknown,
         parmsArray: unknown[],
         runId: number,
     ) {
-        let result = nativeFun.apply(caller, parmsArray);
-        returnResult && runtimeDataMgr.setPinData(returnResult, result, runId);
+        const result = nativeFun.apply(caller, parmsArray);
+        if (returnResult) {
+            runtimeDataMgr.setPinData(returnResult, result, runId);
+        }
         return result;
     }
 
-    public reCall(index: unknown) {}
+    public reCall(_index: unknown) {}
 }
 
 type BlueprintRunCache = Map<number, unknown>;

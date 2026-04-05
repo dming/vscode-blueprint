@@ -7,7 +7,6 @@ import type { BluePrintBlock } from "./BluePrintBlock";
 import type { RuntimeDataManager } from "./RuntimeDataManager";
 
 export class BlueprintAutoRun extends BlueprintRuntimeBaseNode {
-    public nid: string | number;
     public collectParam(
         context: BlueprintExecuteNode,
         runtimeDataMgr: RuntimeDataManager,
@@ -16,13 +15,20 @@ export class BlueprintAutoRun extends BlueprintRuntimeBaseNode {
         runId: number,
         prePin: BlueprintPinRuntime | null,
     ) {
-        let _parmsArray = runtimeDataMgr.getDataById(this.nid).getParamsArray(runId);
+        const nodeData = runtimeDataMgr.getDataById(this.nid);
+        if (!nodeData) {
+            throw new Error(`BlueprintAutoRun: missing RuntimeNodeData for nid ${String(this.nid)}`);
+        }
+        const _parmsArray = nodeData.getParamsArray(runId);
         _parmsArray.length = 0;
         for (let i = 0, n = inputPins.length; i < n; i++) {
             const curInput = inputPins[i];
-            let from = curInput.linkTo[0];
+            if (!curInput) {
+                continue;
+            }
+            const from = curInput.linkTo[0];
             if (from) {
-                let fowner = from.owner;
+                const fowner = from.owner;
                 if (!context.getCacheAble(fowner, runId)) {
                     from.step(context, runtimeDataMgr, runner, runId, prePin);
                     context.setCacheAble(fowner, runId, true);

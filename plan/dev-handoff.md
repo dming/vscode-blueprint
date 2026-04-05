@@ -2,6 +2,7 @@
 
 ## Last done (this pause)
 
+- **Strict `tsc` for extension/runtime (`src/**` minus webview)** — broad typing pass so `npx tsc --noEmit -p .` is clean: base node `step`/`next` return `unknown`, `BlueprintNativeCallable` + relaxed finish callbacks, `BlueprintFactory` symbol/`_bp_data` typing, guards on `RuntimeDataManager` / event blocks, typed `BP*` libs and `ExpressParse`, plus many `strictPropertyInitialization` and nullability fixes across `src/runtime/core` and `documentModel` merge helper.
 - **Edge endpoints vs viewport (blueprint editor webview)** — `src/webview/editor/main.tsx`
   - **Problem:** Pin anchors from `getBoundingClientRect()` during render lag **one frame** behind `viewport` updates, so **edges did not follow nodes while panning/zooming the canvas**.
   - **Fix:** SVG edge paths (`edgePath`, `pendingEdgePath`) use **`getPinAnchorFromGeometry` only** — screen position from `node.x/y`, `viewport`, and layout constants (`NODE_BORDER_TOP_PX`, card head/body, description block, `FIRST_PIN_CENTER_FROM_PINS_TOP_PX`, `PIN_CENTER_STEP_PX`, etc.). Same-frame as node `style`, so pan/zoom stay aligned.
@@ -12,16 +13,18 @@
 
 ## Current status
 
-- Extension version: **`2.0.1-35`** (`package.json`).
-- Build: expect pass — `npm run build`.
-- Tests: expect pass — `npm run test:all` / `npm run verify:local` (re-run before next session if deps changed).
+- Extension version: see **`package.json`** (e.g. `2.0.1-54` at last build).
+- `npx tsc --noEmit -p .`: **pass** (root `tsconfig`; webview excluded).
+- Build: **pass** — `npm run build`.
+- ESLint `src`: **pass** (last run with `--max-warnings 0`).
+- Tests: re-run `npm run test:all` / `npm run verify:local` if you change runtime behavior beyond typings.
 - Manual smoke: prior run had **2 untested** items on `plan/quick-feel-test-checklist.md` (build-issue focus, multi-root warning); **re-validate canvas pan + edge sync** on resume.
 
 ## Next 3 tasks
 
 1. **Smoke / QA:** Complete the two untested checklist items; add a quick pass for **pan + zoom** while watching **edge endpoints vs pins**.
 2. **If needed:** Sub-pixel tuning of `getPinCenterYOffsetFromNodeTop` / `getNodeHeight` vs real Ant Design Card layout (only if visual mismatch is reported).
-3. **Housekeeping:** Update `Smoke Run Notes` in `plan/quick-feel-test-checklist.md` after the above; optionally bump version per `package-version-first` skill before packaging.
+3. **Housekeeping:** Update `Smoke Run Notes` in `plan/quick-feel-test-checklist.md` after QA; optionally bump version per `package-version-first` skill before packaging.
 
 ## Verify checklist (resume here)
 

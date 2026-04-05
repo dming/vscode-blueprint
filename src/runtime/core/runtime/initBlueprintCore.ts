@@ -1,6 +1,6 @@
 import { BlueprintCreateUtil } from "../BlueprintCreateUtil";
 import { BlueprintExecuteNode } from "../BlueprintExecuteNode";
-import { BlueprintFactory, type BlueprintClassParseRuntimeConstructor } from "../BlueprintFactory";
+import { BlueprintFactory } from "../BlueprintFactory";
 import { BlueprintRuntime } from "../BlueprintRuntime";
 import { BlueprintUtil } from "../BlueprintUtil";
 import { ClassUtil } from "../ClassUtil";
@@ -36,12 +36,14 @@ export function initBlueprintCore(options: InitBlueprintCoreOptions) {
     BlueprintUtil.getClass = (ext: string) => {
         return (
             adapters.reflection?.getClassByName?.(ext) ??
-            (BlueprintUtil.classMap ? (BlueprintUtil.classMap as any)[ext] : undefined)
+            (BlueprintUtil.classMap
+                ? (BlueprintUtil.classMap as Record<string, unknown>)[ext]
+                : undefined)
         );
     };
     BlueprintUtil.regClass = (name: string, cls: unknown) => {
         adapters.reflection?.regClass?.(name, cls);
-        (BlueprintUtil.classMap as any)[name] = cls;
+        (BlueprintUtil.classMap as Record<string, unknown>)[name] = cls;
     };
 
     // Store adapters for runtime-created instances.

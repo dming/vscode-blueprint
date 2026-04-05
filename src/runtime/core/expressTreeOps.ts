@@ -20,7 +20,7 @@ ExpressTreeBase.parseProperty = function parseProperty(express: string): Express
             const funPara = part.slice(ind + 1, part.length - 1);
             const tparams = funPara.split(",");
             for (let i = 0; i < tparams.length; i++) {
-                let param = tparams[i];
+                const param = tparams[i];
                 if (!ExpressTreeBase.isNumber(param)) {
                     const str = ExpressTreeBase.isString(param);
                     if (str === false) {
@@ -95,7 +95,7 @@ ExpressTreeBase.init = function init(this: typeof ExpressTreeBase) {
                 case "+=":
                     treeNode.call = function (context) {
                         return this.left!.equal(
-                            (this.left!.call(context) as any) + (this.right!.call(context) as any),
+                            (this.left!.call(context) as unknown as number) + (this.right!.call(context) as unknown as number),
                             context,
                         );
                     };
@@ -103,72 +103,66 @@ ExpressTreeBase.init = function init(this: typeof ExpressTreeBase) {
                 case "&":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) & (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) & (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "|":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) | (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) | (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "&&":
                     treeNode.call = function (context) {
-                        return (
-                            (this.left!.call(context) as any) &&
-                            (this.right!.call(context) as any)
-                        );
+                        return this.left!.call(context) && this.right!.call(context);
                     };
                     break;
                 case "||":
                     treeNode.call = function (context) {
-                        return (
-                            (this.left!.call(context) as any) ||
-                            (this.right!.call(context) as any)
-                        );
+                        return this.left!.call(context) || this.right!.call(context);
                     };
                     break;
                 case "+":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) + (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) + (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "-":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) - (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) - (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "*":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) * (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) * (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "/":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) / (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) / (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case ">=":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) >= (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) >= (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "<=":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) <= (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) <= (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
@@ -185,31 +179,31 @@ ExpressTreeBase.init = function init(this: typeof ExpressTreeBase) {
                 case ">":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) > (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) > (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "<":
                     treeNode.call = function (context) {
                         return (
-                            (this.left!.call(context) as any) < (this.right!.call(context) as any)
+                            (this.left!.call(context) as unknown as number) < (this.right!.call(context) as unknown as number)
                         );
                     };
                     break;
                 case "!":
                     treeNode.call = function (context) {
-                        return !(this.right!.call(context) as any);
+                        return !this.right!.call(context);
                     };
                     break;
                 case "++":
                     treeNode.call = function (context) {
                         if (this.right) {
                             return this.right.equal(
-                                (this.right.call(context) as any) + 1,
+                                (this.right.call(context) as unknown as number) + 1,
                                 context,
                             );
                         } else {
-                            const result = this.left!.call(context) as any;
+                            const result = this.left!.call(context) as unknown as number;
                             this.left!.equal(result + 1, context);
                             return result;
                         }
@@ -219,11 +213,11 @@ ExpressTreeBase.init = function init(this: typeof ExpressTreeBase) {
                     treeNode.call = function (context) {
                         if (this.right) {
                             return this.right.equal(
-                                (this.right.call(context) as any) - 1,
+                                (this.right.call(context) as unknown as number) - 1,
                                 context,
                             );
                         } else {
-                            const result = this.left!.call(context) as any;
+                            const result = this.left!.call(context) as unknown as number;
                             this.left!.equal(result - 1, context);
                             return result;
                         }

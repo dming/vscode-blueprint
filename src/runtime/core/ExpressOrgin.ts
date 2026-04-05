@@ -10,7 +10,7 @@ export class ExpressOrgin extends ExpressTreeBase {
         this._literal = value;
     }
 
-    public call(context: unknown): unknown {
+    public call(_context: unknown): unknown {
         return this._literal;
     }
 }

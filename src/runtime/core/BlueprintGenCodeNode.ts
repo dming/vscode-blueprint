@@ -69,7 +69,7 @@ export class BlueprintGenCodeNode extends BlueprintRunBase {
     }
 
     public beginExecute(runtimeNode: BlueprintRuntimeBaseNode) {
-        let index = this.listNode.indexOf(runtimeNode);
+        const index = this.listNode.indexOf(runtimeNode);
         if (index == -1) {
             this.listNode.push(runtimeNode);
             this.currentFun = [];
@@ -99,9 +99,12 @@ export class BlueprintGenCodeNode extends BlueprintRunBase {
         parmsArray: unknown[],
         _runId: number,
     ) {
-        let last = this.currentFun!.pop();
-        last = "let " + current.name + current.owner.nid + " = " + last;
-        this.currentFun.push(last);
+        const popped = this.currentFun!.pop();
+        if (popped === undefined) {
+            return;
+        }
+        const last = "let " + current.name + current.owner.nid + " = " + popped;
+        this.currentFun!.push(last);
         parmsArray.push(current.name + current.owner.nid);
     }
 
@@ -132,8 +135,8 @@ export class BlueprintGenCodeNode extends BlueprintRunBase {
         parmsArray: unknown[],
         _runId: number,
     ) {
-        let a = nativeFun.name + "(" + parmsArray.join(",") + ");";
-        this.currentFun.push(a);
+        const a = nativeFun.name + "(" + parmsArray.join(",") + ");";
+        this.currentFun!.push(a);
     }
 
     public toString() {
@@ -143,7 +146,7 @@ export class BlueprintGenCodeNode extends BlueprintRunBase {
     public getCode() {
         let code = "";
         for (let i = 0, n = this.codes.length; i < n; i++) {
-            let m = this.blockMap.get(i);
+            const m = this.blockMap.get(i);
             if (m) {
                 code += m.code;
                 i = m.end;

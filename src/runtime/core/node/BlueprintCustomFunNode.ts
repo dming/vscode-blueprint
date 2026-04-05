@@ -26,6 +26,11 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
     constructor() {
         super();
         this.inExecutes = [];
+        this.inPutParmPins = [];
+        this.outPutParmPins = [];
+        this.outExecutes = [];
+        this.nativeFun = null;
+        this.staticNext = null;
         this.bpruntime = null;
         this.staticContext = null;
     }
@@ -39,7 +44,7 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
         prePin: BlueprintPinRuntime | null,
     ) {
         this._checkFun();
-        let parmsArray = super.collectParam(
+        const parmsArray = super.collectParam(
             context,
             runtimeDataMgr,
             this.inPutParmPins,
@@ -55,7 +60,9 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
         if (!this._isCheck) {
             this._isCheck = true;
             if (this.bpruntime) {
-                let fun = this.bpruntime.funBlockMap.get(this.functionID);
+                const fun = this.functionID
+                    ? this.bpruntime.funBlockMap.get(this.functionID)
+                    : undefined;
                 if (fun && fun.isStatic) {
                     this.isMember = false;
                 } else {
@@ -65,8 +72,8 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
         }
     }
 
-    public onParseLinkData(node: { dataId?: unknown; target: string }, manager: unknown) {
-        let id = String(node.dataId);
+    public onParseLinkData(node: { dataId?: unknown; target: string }, _manager: unknown) {
+        const id = String(node.dataId);
         if (id) {
             this.functionID = id;
             this.isMember = true;
@@ -99,18 +106,25 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
         let bpRuntime: BlueprintRuntime;
         let _funcContext: BlueprintExecuteNode;
         if (!this.isMember) {
+            if (this.bpruntime == null || this.staticContext == null) {
+                return null;
+            }
             bpRuntime = this.bpruntime;
             _funcContext = this.staticContext;
-        } else if (caller && caller[BlueprintFactory.contextSymbol]) {
-            bpRuntime = caller[BlueprintFactory.bpSymbol];
-            _funcContext = caller[BlueprintFactory.contextSymbol];
+        } else if (caller) {
+            const host = caller as Record<PropertyKey, unknown>;
+            if (host[BlueprintFactory.contextSymbol as PropertyKey]) {
+                bpRuntime = host[BlueprintFactory.bpSymbol as PropertyKey] as BlueprintRuntime;
+                _funcContext = host[BlueprintFactory.contextSymbol as PropertyKey] as BlueprintExecuteNode;
+            } else {
+                return null;
+            }
         } else {
             return null;
         }
         let primise: Promise<void> | undefined;
         let cb: (() => void) | undefined;
-        let result;
-        result = bpRuntime.runCustomFun(
+        const result = bpRuntime.runCustomFun(
             _funcContext,
             this.functionID,
             parmsArray,
@@ -124,7 +138,7 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
             runtimeDataMgr,
         );
         if (result === false) {
-            primise = new Promise((resolve, reject) => {
+            primise = new Promise((resolve, _reject) => {
                 cb = resolve;
             });
             return primise;
@@ -133,10 +147,10 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
     }
 
     private _executeFun(
-        context: BlueprintExecuteNode,
+        _context: BlueprintExecuteNode,
         cb: (() => void) | undefined,
-        parmsArray: unknown[],
-        runner: BluePrintBlock,
+        _parmsArray: unknown[],
+        _runner: BluePrintBlock,
     ) {
         if (cb) {
             cb();
@@ -165,5 +179,7 @@ export class BlueprintCustomFunNode extends BlueprintFunNode {
         this.funcode = fun === null || fun === void 0 ? void 0 : fun.name;
     }
 
-    public customFun(parms: unknown[]) {}
+    public customFun(..._args: unknown[]): unknown {
+        return undefined;
+    }
 }

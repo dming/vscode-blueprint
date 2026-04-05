@@ -3,7 +3,6 @@
 import { ExpressTreeBase } from "./ExpressTreeBase";
 
 export class ExpressString extends ExpressTreeBase {
-    public value: string;
     constructor(value: string) {
         super(value);
     }

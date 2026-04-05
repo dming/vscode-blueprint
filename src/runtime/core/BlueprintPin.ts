@@ -10,14 +10,14 @@ export interface BlueprintPinJson {
 }
 
 export class BlueprintPin {
-    private _direction: EPinDirection;
-    public id: string;
+    private _direction!: EPinDirection;
+    public id!: string;
     public linkTo: BlueprintPin[];
-    public name: string;
-    public nid: string;
+    public name!: string;
+    public nid!: string;
     public otype: string | undefined;
     public owner: unknown;
-    public type: EPinType;
+    public type!: EPinType;
     public value: unknown;
     public get direction() {
         return this._direction;

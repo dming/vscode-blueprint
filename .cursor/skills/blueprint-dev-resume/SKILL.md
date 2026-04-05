@@ -22,6 +22,7 @@ When user asks to continue development:
 
 ## Execution Rules
 
+- For `blueprint.config.json` or `*.bp.json` shape / parsing / adapters, follow the `blueprint-json-contracts` skill (read the two `src/shared/JsonType/*.ts` contract files first).
 - After substantive code edits, run `npm run build`.
 - Mention changed files and build result in the response.
 - Keep regression awareness for these high-frequency risks:

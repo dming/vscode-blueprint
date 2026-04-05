@@ -47,7 +47,7 @@ export class BlueprintDecorator {
         } else if (componentCtor && cls instanceof componentCtor) {
             type = "Component";
         }
-        let declare = {
+        const declare = {
             name,
             type,
         };
@@ -63,10 +63,10 @@ export class BlueprintDecorator {
             console.error("BP:Reg class Fail :", options.name, " , propertType is not class!");
             return null;
         }
-        let propertType = target.prototype;
+        const propertType = target.prototype;
         let declare = BlueprintDecorator.bpUserMap.get(propertType);
         if (!declare) {
-            declare = BlueprintDecorator.initDeclaration(options.name, propertType);
+            declare = BlueprintDecorator.initDeclaration(options.name ?? "", propertType);
         } else {
             declare.name = options.name;
         }
@@ -95,13 +95,13 @@ export class BlueprintDecorator {
             console.error("BP:Reg Property Fail :", propertyKey, " , propertType is not property!");
             return;
         }
-        let isStatic = options.modifiers ? !!options.modifiers.isStatic : false;
-        let mapkey = isStatic ? target.prototype : target;
+        const isStatic = options.modifiers ? !!options.modifiers.isStatic : false;
+        const mapkey = isStatic ? target.prototype : target;
         let declare = BlueprintDecorator.bpUserMap.get(mapkey);
         if (!declare) {
             declare = BlueprintDecorator.initDeclaration("", mapkey);
         }
-        let prop = {
+        const prop = {
             name: propertyKey,
             type: options.type,
             caption: options.caption,
@@ -130,13 +130,13 @@ export class BlueprintDecorator {
             console.error("BP:Reg Function Fail :", propertyKey, " , propertType is not function!");
             return;
         }
-        let isStatic = options.modifiers ? !!options.modifiers.isStatic : false;
-        let mapkey = isStatic ? target.prototype : target;
+        const isStatic = options.modifiers ? !!options.modifiers.isStatic : false;
+        const mapkey = isStatic ? target.prototype : target;
         let declare = BlueprintDecorator.bpUserMap.get(mapkey);
         if (!declare) {
             declare = BlueprintDecorator.initDeclaration("", mapkey);
         }
-        let func = {
+        const func = {
             name: propertyKey,
             type: options.type || BPType.Function,
             returnType: (_a = options.returnType) !== null && _a !== void 0 ? _a : "void",
@@ -166,13 +166,13 @@ export class BlueprintDecorator {
             console.error("BP:Reg Accessor Fail :", propertyKey, " , propertType is not property!");
             return;
         }
-        let isStatic = options.modifiers ? !!options.modifiers.isStatic : false;
-        let mapkey = isStatic ? target.prototype : target;
+        const isStatic = options.modifiers ? !!options.modifiers.isStatic : false;
+        const mapkey = isStatic ? target.prototype : target;
         let declare = BlueprintDecorator.bpUserMap.get(mapkey);
         if (!declare) {
             declare = BlueprintDecorator.initDeclaration("", mapkey);
         }
-        let prop = {
+        const prop = {
             name: propertyKey,
             type: options.type,
             caption: options.caption,
@@ -194,7 +194,7 @@ export class BlueprintDecorator {
     }
 
     public static createBPEnum(name: string, members: unknown) {
-        let declare = {
+        const declare = {
             name,
             type: "Enum",
             members,

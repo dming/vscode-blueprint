@@ -14,21 +14,21 @@ export class BlueprintEventNode extends BlueprintRuntimeBaseNode {
     public funcode: string | undefined;
     public isAnonymous: boolean | undefined;
     public isMember: boolean | undefined;
-    public nativeFun: ((...args: unknown[]) => unknown) | null;
-    public nid: string | number;
-    public outExecute: BlueprintPinRuntime | null;
+    public nativeFun: ((...args: unknown[]) => unknown) | null = null;
+    public nid!: string | number;
+    public outExecute: BlueprintPinRuntime | null = null;
     public outExecutes: BlueprintPinRuntime[] | undefined;
-    public outPutParmPins: BlueprintPinRuntime[];
-    public staticNext: BlueprintPinRuntime | null;
+    public outPutParmPins!: BlueprintPinRuntime[];
+    public staticNext: BlueprintPinRuntime | null = null;
     public tryExecute: BlueprintRuntimeBaseNode["tryExecute"];
     constructor() {
         super();
-        this.tryExecute = this.emptyExecute;
+        this.tryExecute = this.emptyExecute.bind(this);
     }
 
     public onParseLinkData(
         node: { dataId?: unknown; target: string; name?: string },
-        manager: unknown,
+        _manager: unknown,
     ) {
         if (node.dataId) {
             this.isAnonymous = true;
@@ -60,16 +60,16 @@ export class BlueprintEventNode extends BlueprintRuntimeBaseNode {
         fromPin: (BlueprintPinRuntime & { otype?: string }) | null,
     ) {
         if (fromPin && fromPin.otype == "bpFun") {
-            let data = runtimeDataMgr.getDataById<RuntimeNodeData & { eventName?: string }>(
+            const data = runtimeDataMgr.getDataById<RuntimeNodeData & { eventName?: string }>(
                 this.nid,
             )!;
-            let _this = this;
+            // eslint-disable-next-line @typescript-eslint/no-this-alias -- closure for generated callback
+            const _this = this;
             data.eventName = this.eventName;
             let callFun = data.getCallFun(runId);
             if (!callFun) {
-                callFun = function () {
-                    let parms = Array.from(arguments);
-                    let nextPin = _this.outExecute.linkTo[0];
+                callFun = function (...parms: unknown[]) {
+                    const nextPin = _this.outExecute!.linkTo[0];
                     if (nextPin) {
                         runner.runAnonymous(
                             context,
@@ -98,7 +98,7 @@ export class BlueprintEventNode extends BlueprintRuntimeBaseNode {
         enableDebugPause: boolean,
         runId: number,
         fromPin: BlueprintPinRuntime | null,
-        prePin: BlueprintPinRuntime | null,
+        _prePin: BlueprintPinRuntime | null,
     ) {
         if (fromExecute) {
             context.endExecute(this);

@@ -1,7 +1,7 @@
 // Auto-generated from res/y.blueprint.js
 
 export class RuntimePinData {
-    public name: string;
+    public name!: string;
     public value: unknown;
     public valueMap: RuntimeValueByRunId;
     constructor() {
@@ -9,7 +9,7 @@ export class RuntimePinData {
     }
 
     public copyValue(runId: number, toRunId: number) {
-        let value = this.valueMap.get(runId);
+        const value = this.valueMap.get(runId);
         if (value != undefined) {
             this.valueMap.set(toRunId, value);
         }
@@ -24,7 +24,7 @@ export class RuntimePinData {
         this.valueMap.set(runId, value);
     }
 
-    public getValueOnly(runId: number) {
+    public getValueOnly(_runId: number) {
         return this.value;
     }
 

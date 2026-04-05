@@ -29,7 +29,7 @@ export class BlueprintNewTargetNode extends BlueprintRuntimeBaseNode {
         fromPin: BlueprintPinRuntime | null,
         prePin: BlueprintPinRuntime | null,
     ) {
-        let _parmsArray = this.collectParam(
+        const _parmsArray = this.collectParam(
             context,
             runtimeDataMgr,
             this.inPutParmPins,
@@ -37,16 +37,18 @@ export class BlueprintNewTargetNode extends BlueprintRuntimeBaseNode {
             runId,
             prePin,
         );
-        let result = this.cls ? Reflect.construct(this.cls, _parmsArray) : {};
+        const result: Record<string, unknown> = this.cls
+            ? (Reflect.construct(this.cls, _parmsArray) as Record<string, unknown>)
+            : {};
         if (!this.cls) {
             for (let i = 0; i < this.inPutParmPins.length; i++) {
-                let pin = this.inPutParmPins[i];
+                const pin = this.inPutParmPins[i];
                 if (pin.value !== undefined) {
                     result[pin.name] = pin.value;
                 }
             }
         }
-        runtimeDataMgr.setPinData(this.outPutParmPins[0], result, runId);
+        runtimeDataMgr.setPinData(this.outPutParmPins[0]!, result, runId);
         if (fromExecute) {
             context.endExecute(this);
         }

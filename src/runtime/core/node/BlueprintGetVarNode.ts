@@ -14,14 +14,14 @@ export class BlueprintGetVarNode extends BlueprintRuntimeBaseNode {
         super();
     }
 
-    public onParseLinkData(node: { target: string; dataId: unknown }, manager: unknown) {
-        let cfg = BlueprintUtil.getConstDataById<{ name?: string }>(
+    public onParseLinkData(node: { target: string; dataId: unknown }, _manager: unknown) {
+        const cfg = BlueprintUtil.getConstDataById<{ name?: string }>(
             node.target,
             String(node.dataId),
         );
-        if (cfg) {
+        if (cfg && cfg.name !== undefined) {
             this._varKey = cfg.name;
-            this.name = this._varKey;
+            this.name = cfg.name;
         }
     }
 
@@ -35,7 +35,7 @@ export class BlueprintGetVarNode extends BlueprintRuntimeBaseNode {
         fromPin: BlueprintPinRuntime | null,
         prePin: BlueprintPinRuntime | null,
     ) {
-        let _parmsArray = this.collectParam(
+        const _parmsArray = this.collectParam(
             context,
             runtimeDataMgr,
             this.inPutParmPins,
@@ -47,7 +47,7 @@ export class BlueprintGetVarNode extends BlueprintRuntimeBaseNode {
         context.parmFromCustom(_parmsArray, context, "context");
         if (this.nativeFun) {
             this.checkTarget(_parmsArray[0]);
-            let result = context.executeFun(
+            const result = context.executeFun(
                 this.nativeFun,
                 this.returnValue,
                 runtimeDataMgr,

@@ -17,7 +17,7 @@ export class BlueprintSetTempVarNode extends BlueprintFunNode {
         node: { target: string; dataId: unknown },
         manager: { dataMap: Record<string, { name?: string }> },
     ) {
-        let cfg = manager.dataMap[String(node.dataId)];
+        const cfg = manager.dataMap[String(node.dataId)];
         this._varKey = cfg
             ? cfg.name
             : BlueprintUtil.getConstDataById<{ name?: string }>(node.target, String(node.dataId))
@@ -34,7 +34,7 @@ export class BlueprintSetTempVarNode extends BlueprintFunNode {
         fromPin: BlueprintPinRuntime | null,
         prePin: BlueprintPinRuntime | null,
     ) {
-        let _parmsArray = this.collectParam(
+        const _parmsArray = this.collectParam(
             context,
             runtimeDataMgr,
             this.inPutParmPins,

@@ -18,7 +18,7 @@ export class BlueprintGetTempVarNode extends BlueprintRuntimeBaseNode {
         node: { target: string; dataId: unknown },
         manager: { dataMap: Record<string, { name?: string }> },
     ) {
-        let cfg = manager.dataMap[String(node.dataId)];
+        const cfg = manager.dataMap[String(node.dataId)];
         this._varKey = cfg
             ? cfg.name
             : BlueprintUtil.getConstDataById<{ name?: string }>(node.target, String(node.dataId))
@@ -35,7 +35,7 @@ export class BlueprintGetTempVarNode extends BlueprintRuntimeBaseNode {
         fromPin: BlueprintPinRuntime | null,
         prePin: BlueprintPinRuntime | null,
     ) {
-        let _parmsArray = this.collectParam(
+        const _parmsArray = this.collectParam(
             context,
             runtimeDataMgr,
             this.inPutParmPins,
@@ -47,7 +47,7 @@ export class BlueprintGetTempVarNode extends BlueprintRuntimeBaseNode {
         context.parmFromCustom(_parmsArray, runtimeDataMgr, "runtimeDataMgr");
         context.parmFromCustom(_parmsArray, runId, "runId");
         if (this.nativeFun) {
-            let result = context.executeFun(
+            const result = context.executeFun(
                 this.nativeFun,
                 this.returnValue,
                 runtimeDataMgr,

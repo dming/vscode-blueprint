@@ -1,22 +1,19 @@
 // Auto-generated from res/y.blueprint.js
 
 import { BlueprintData } from "./BlueprintData";
+import type { BlueprintNativeCallable } from "./BlueprintDataTypes";
 import { BlueprintFactory } from "./BlueprintFactory";
 import { customData, extendsData } from "./BlueprintStores";
 
 /** `[callback, thisArg, extraArgs?]` used by `addCustomData` notifications. */
-export type BlueprintFinishCallbackEntry = [
-    (this: unknown, ...args: unknown[]) => unknown,
-    unknown,
-    unknown[]?,
-];
+export type BlueprintFinishCallbackEntry = [BlueprintNativeCallable, unknown, unknown[]?];
 
 export class BlueprintUtil {
-    public bpData: BlueprintData;
-    public classMap: Record<string, unknown>;
-    public customModify: boolean;
-    public onfinishCallbacks: Record<string, BlueprintFinishCallbackEntry>;
-    public resouceMap: Map<string, unknown>;
+    public bpData!: BlueprintData;
+    public classMap!: Record<string, unknown>;
+    public customModify!: boolean;
+    public onfinishCallbacks!: Record<string, BlueprintFinishCallbackEntry>;
+    public resouceMap!: Map<string, unknown>;
     public static CustomClassFinish: string = "CustomClassFinish";
     public static bpData: BlueprintData;
     public static classMap: Record<string, unknown> = {};
@@ -40,9 +37,9 @@ export class BlueprintUtil {
     public static addCustomData(name: string, data: unknown) {
         customData[name] = data;
         BlueprintUtil.customModify = true;
-        for (let key in this.onfinishCallbacks) {
-            let [fun, caller, args] = this.onfinishCallbacks[key];
-            let realArgs = args ? [name, ...args] : [name];
+        for (const key in this.onfinishCallbacks) {
+            const [fun, caller, args] = this.onfinishCallbacks[key];
+            const realArgs = args ? [name, ...args] : [name];
             fun.apply(caller, realArgs);
         }
     }
@@ -81,7 +78,7 @@ export class BlueprintUtil {
         return this.resouceMap.get(uuid);
     }
 
-    public static getNameByUUID(uuid: string) {
+    public static getNameByUUID(_uuid: string) {
         return null;
     }
 }

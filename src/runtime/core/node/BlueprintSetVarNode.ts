@@ -17,12 +17,14 @@ export class BlueprintSetVarNode extends BlueprintFunNode {
         node: { target: string; dataId: unknown },
         manager: { dataMap: Record<string, { name?: string }> },
     ) {
-        let cfg = manager.dataMap[String(node.dataId)];
+        const cfg = manager.dataMap[String(node.dataId)];
         this._varKey = cfg
             ? cfg.name
             : BlueprintUtil.getConstDataById<{ name?: string }>(node.target, String(node.dataId))
                   ?.name;
-        this.name = this._varKey;
+        if (this._varKey !== undefined) {
+            this.name = this._varKey;
+        }
     }
 
     public step(
@@ -35,7 +37,7 @@ export class BlueprintSetVarNode extends BlueprintFunNode {
         fromPin: BlueprintPinRuntime | null,
         prePin: BlueprintPinRuntime | null,
     ) {
-        let _parmsArray = this.collectParam(
+        const _parmsArray = this.collectParam(
             context,
             runtimeDataMgr,
             this.inPutParmPins,

@@ -20,6 +20,9 @@ export class BlueprintComplexNode extends BlueprintRuntimeBaseNode {
         super();
         this.inExecutes = [];
         this.outExecutes = [];
+        this.nativeFun = null;
+        this.emptyExecute = super.emptyExecute.bind(this) as BlueprintRuntimeBaseNode["emptyExecute"];
+        this.find = (out) => out[0]!;
         this.tryExecute = this.emptyExecute;
     }
 
@@ -27,12 +30,12 @@ export class BlueprintComplexNode extends BlueprintRuntimeBaseNode {
         context: BlueprintExecuteNode,
         runtimeDataMgr: RuntimeDataManager,
         parmsArray: unknown[],
-        runner: BluePrintBlock,
-        enableDebugPause: boolean,
-        runId: number,
-        fromPin: BlueprintPinRuntime | null,
+        _runner: BluePrintBlock,
+        _enableDebugPause: boolean,
+        _runId: number,
+        _fromPin: BlueprintPinRuntime | null,
     ): BlueprintPinRuntime | BlueprintPromise | null {
-        let result = this.find(this.outExecutes, ...parmsArray);
+        const result = this.find(this.outExecutes, ...parmsArray);
         if (result.linkTo.length) {
             return result;
         }

@@ -11,7 +11,7 @@ import { BPType } from "./BlueprintDefs";
 
 export class BluePrintFunStartBlock extends BluePrintEventBlock {
     public funEnds: BlueprintCustomFunReturn[];
-    public funStart: BlueprintCustomFunStart | null;
+    public funStart: BlueprintCustomFunStart | null = null;
     constructor(id?: string | number) {
         super(id);
         this.funEnds = [];
@@ -38,10 +38,17 @@ export class BluePrintFunStartBlock extends BluePrintEventBlock {
         runner: BluePrintBlock,
         oldRuntimeDataMgr: RuntimeDataManager,
     ) {
-        let fun = this.funStart;
+        const fun = this.funStart;
         if (fun) {
-            let runtimeDataMgr = context.getDataManagerByID(this.parentId);
-            let curRunId = this.getRunID();
+            const pid = this.parentId;
+            if (pid === undefined) {
+                return null;
+            }
+            const runtimeDataMgr = context.getDataManagerByID(pid);
+            if (!runtimeDataMgr) {
+                return null;
+            }
+            const curRunId = this.getRunID();
             if (parms) {
                 this.funEnds.forEach((value) => {
                     value.initData(
@@ -57,6 +64,10 @@ export class BluePrintFunStartBlock extends BluePrintEventBlock {
                 });
                 fun.initData(runtimeDataMgr, parms, curRunId);
             }
+            const outPin = fun.outExecutes?.[execId];
+            if (!outPin) {
+                return null;
+            }
             return this.runByContext(
                 context,
                 runtimeDataMgr,
@@ -64,7 +75,7 @@ export class BluePrintFunStartBlock extends BluePrintEventBlock {
                 true,
                 cb,
                 curRunId,
-                fun.outExecutes[execId],
+                outPin,
                 null,
             );
         }

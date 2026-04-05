@@ -29,7 +29,7 @@ export class BlueprintCustomFunReturnContext extends RuntimeNodeData {
         runner: BluePrintBlock,
         runtimeDataMgr: RuntimeDataManager,
     ) {
-        let result = [];
+        const result: RuntimePinData[] = [];
         this.returnMap.set(curRunId, result);
         this.runIdMap.set(curRunId, runId);
         this.outExecutesMap.set(curRunId, outExecutes);
@@ -40,13 +40,16 @@ export class BlueprintCustomFunReturnContext extends RuntimeNodeData {
     }
 
     public runExecute(runId: number, index: number, context: BlueprintExecuteNode) {
-        let outExecutes = this.outExecutesMap.get(runId);
+        const outExecutes = this.outExecutesMap.get(runId);
         if (outExecutes) {
-            let outExecute = outExecutes[index];
+            const outExecute = outExecutes[index];
             if (outExecute) {
-                let nextPin = outExecute.linkTo[0];
+                const nextPin = outExecute.linkTo[0];
                 if (nextPin) {
-                    let runner = this.runnerMap.get(runId);
+                    const runner = this.runnerMap.get(runId);
+                    if (!runner) {
+                        return;
+                    }
                     runner[0].runByContext(
                         context,
                         runner[1],
@@ -63,10 +66,11 @@ export class BlueprintCustomFunReturnContext extends RuntimeNodeData {
     }
 
     public returnResult(runId: number, curRunId: number | undefined) {
-        let result = this.returnMap.get(runId);
+        const result = this.returnMap.get(runId);
         if (result) {
             result.forEach((parm, index) => {
-                parm.setValue(curRunId, this.getParamsArray(runId)[index]);
+                const rid = curRunId !== undefined ? curRunId : runId;
+                parm.setValue(rid, this.getParamsArray(runId)[index]);
             });
         }
     }

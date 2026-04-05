@@ -29,22 +29,22 @@ export class ExpressParse {
     }
 
     public tokenize(expression: string): string[] | null {
-        let exp = new RegExp(
+        const exp = new RegExp(
             "/\\*([\\s\\S]*?)\\*/|//.*|'(.*?)'|\"(.*?)\"|\\`([\\s\\S]*?)\\`|\\.{3}|[$\\w.]+|(\\+\\+|--|\\|\\||&&|>>>|>>|<<|==|!=)(=){0,1}|=>|\\*\\*(=){0,1}|[+*-/%=><!\\|&~^](=){0,1}|[?;:()\\[\\]\{\\}]",
             "g",
         );
-        let tokens = expression.match(exp);
+        const tokens = expression.match(exp);
         if (!tokens) {
             return null;
         }
-        let result1 = [];
+        const result1 = [];
         let flag = 0;
-        let isSingle = (str: string) => {
+        const isSingle = (str: string) => {
             return !isNaN(+str) || this.isOperator(str) || ExpressParse.brackets.indexOf(str) != -1;
         };
         for (let i = 0; i < tokens.length; i++) {
-            let str1 = tokens[i];
-            let str2 = tokens[i + 1];
+            const str1 = tokens[i];
+            const str2 = tokens[i + 1];
             if (flag) {
                 result1[result1.length - 1] += str1;
                 if (str2) {
@@ -63,10 +63,10 @@ export class ExpressParse {
                 flag = !isSingle(str1) && str2 == "(" ? 1 : 0;
             }
         }
-        let result2 = [];
+        const result2 = [];
         for (let i = 0; i < result1.length; i++) {
-            let str1 = result1[i];
-            let str2 = result1[i + 1];
+            const str1 = result1[i];
+            const str2 = result1[i + 1];
             result2.push(str1);
             if (str2 && !isSingle(str1) && !isSingle(str2)) {
                 i++;
@@ -81,20 +81,22 @@ export class ExpressParse {
             return this._catch.get(expression);
         }
         const tokens = this.tokenize(expression);
-        const operationsStack = [];
-        const valuesStack = [];
+        const operationsStack: string[] = [];
+        const valuesStack: (ExpressTreeBase | null)[] = [];
         const applyOperator = () => {
             const operator = operationsStack.pop();
-            const right = valuesStack.pop();
-            const left = valuesStack.pop();
+            if (operator === undefined) {
+                return;
+            }
+            const right = valuesStack.pop() ?? null;
+            const left = valuesStack.pop() ?? null;
             const node = ExpressTreeBase.creatreExpressTree(operator);
             node.left = left;
             node.right = right;
             valuesStack.push(node);
         };
-        tokens === null || tokens === void 0
-            ? void 0
-            : tokens.forEach((token) => {
+        if (tokens) {
+            tokens.forEach((token) => {
                   if (token === "(" || token === "[") {
                       operationsStack.push(token);
                   } else if (token === ")" || token === "]") {
@@ -106,8 +108,10 @@ export class ExpressParse {
                       }
                       if (token == "]") {
                           const node = new ExpressDict("");
-                          node.right = valuesStack.pop();
-                          node.left = valuesStack.pop();
+                          const r = valuesStack.pop();
+                          const l = valuesStack.pop();
+                          node.right = r!;
+                          node.left = l!;
                           valuesStack.push(node);
                       }
                       operationsStack.pop();
@@ -127,11 +131,14 @@ export class ExpressParse {
                       operationsStack.push(token);
                   }
               });
+        }
         while (operationsStack.length) {
             applyOperator();
         }
-        let result = valuesStack.pop();
-        this._catch.set(expression, result);
-        return result;
+        const result = valuesStack.pop();
+        if (result !== undefined && result !== null) {
+            this._catch.set(expression, result);
+        }
+        return result === null ? undefined : result;
     }
 }

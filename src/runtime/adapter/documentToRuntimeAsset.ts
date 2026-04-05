@@ -1,10 +1,16 @@
-import type { BlueprintAssetJson, BlueprintJsonItem } from "../core/BlueprintJsonTypes";
+import type {
+  BlueprintAssetJson,
+  BlueprintJsonItem,
+} from "../../shared/JsonType/BlueprintJsonTypes";
 import type {
   BlueprintDocument,
   BlueprintGraphBody,
   BlueprintNode,
 } from "../../shared/blueprint/documentModel";
-import { NODE_VALUE_LIFECYCLE_HOOK, TEMPLATE_EVENT_START } from "../../shared/blueprint/documentModel";
+import {
+  NODE_VALUE_LIFECYCLE_HOOK,
+  TEMPLATE_EVENT_START,
+} from "../../shared/blueprint/documentModel";
 
 const TEMPLATE_DEBUG_PRINT = "Debug.Print";
 
@@ -14,7 +20,7 @@ export type DocumentToRuntimeAssetResult =
 
 function collectExecChain(
   graph: BlueprintGraphBody,
-  startNodeId: string,
+  startNodeId: string
 ): { orderedIds: string[]; error?: string } {
   const execOut = new Map<string, string>();
   for (const e of graph.edges) {
@@ -59,7 +65,7 @@ function buildLinkToNext(nextId: string | undefined): Record<string, unknown> {
  */
 export function documentToRuntimeAsset(
   doc: BlueprintDocument,
-  options?: { lifecycleHook?: string },
+  options?: { lifecycleHook?: string }
 ): DocumentToRuntimeAssetResult {
   const baseClass = doc.inherits?.trim() || "Actor";
   const graph = doc.graph;
@@ -70,14 +76,14 @@ export function documentToRuntimeAsset(
     startNode = graph.nodes.find(
       (n) =>
         n.template === TEMPLATE_EVENT_START &&
-        String(n.values?.[NODE_VALUE_LIFECYCLE_HOOK] ?? "").trim() === wantHook,
+        String(n.values?.[NODE_VALUE_LIFECYCLE_HOOK] ?? "").trim() === wantHook
     );
   }
   if (!startNode) {
     startNode = graph.nodes.find(
       (n) =>
         n.template === TEMPLATE_EVENT_START &&
-        String(n.values?.[NODE_VALUE_LIFECYCLE_HOOK] ?? "").trim().length > 0,
+        String(n.values?.[NODE_VALUE_LIFECYCLE_HOOK] ?? "").trim().length > 0
     );
   }
   if (!startNode) {

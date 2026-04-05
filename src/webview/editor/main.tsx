@@ -436,31 +436,6 @@ const autoLayoutNodes = (nodes: BlueprintNode[], edges: BlueprintEdge[]): Bluepr
   });
 };
 
-const pinLines = (pins: Pin[]): string => pins.map((p) => `${p.name}:${p.type}`).join("\n");
-
-const parsePinLines = (raw: string): { pins: Pin[]; error?: string } => {
-  const lines = raw
-    .split(/\r?\n/)
-    .map((v) => v.trim())
-    .filter((v) => v.length > 0);
-  const pins: Pin[] = [];
-  const seen = new Set<string>();
-  for (const line of lines) {
-    const [nameRaw, typeRaw] = line.split(":");
-    const name = (nameRaw ?? "").trim();
-    const type = (typeRaw ?? "").trim();
-    if (!name || !type) {
-      return { pins: [], error: `Invalid pin line '${line}', expected 'name:type'.` };
-    }
-    if (seen.has(name)) {
-      return { pins: [], error: `Duplicate pin name '${name}'.` };
-    }
-    seen.add(name);
-    pins.push({ name, type });
-  }
-  return { pins };
-};
-
 const validateConnection = (
   graph: BlueprintGraphBody,
   pending: PendingConnection,
@@ -525,7 +500,7 @@ const EditorApp = () => {
   } | null>(null);
   /** Filter text for "add node from template" context menu */
   const [addNodeTemplateQuery, setAddNodeTemplateQuery] = useState("");
-  const addNodeMenuSearchRef = useRef<any>(null);
+  const addNodeMenuSearchRef = useRef<React.ComponentRef<typeof Input> | null>(null);
   const dismissContextMenus = () => {
     setCanvasContextMenu(null);
   };
@@ -955,7 +930,7 @@ const EditorApp = () => {
   const dragActiveRef = useRef(false);
   const updateFlushTimerRef = useRef<number | null>(null);
   const inspectorFormRef = useRef<HTMLDivElement | null>(null);
-  const nodeFinderRef = useRef<{ focus?: () => void } | null>(null);
+  const nodeFinderRef = useRef<React.ComponentRef<typeof Select> | null>(null);
   const inspectorEditingRef = useRef(false);
   const inspectorFormSyncRef = useRef<{
     id: string;
@@ -2014,8 +1989,8 @@ const EditorApp = () => {
       const right = Math.max(...xs);
       const top = Math.min(...ys);
       const bottom = Math.max(...ys);
-      let xMap = new Map<string, number>();
-      let yMap = new Map<string, number>();
+      const xMap = new Map<string, number>();
+      const yMap = new Map<string, number>();
       if (mode === "left") {
         for (const n of selected) xMap.set(n.id, left);
       } else if (mode === "right") {
@@ -3838,7 +3813,7 @@ const EditorApp = () => {
             <span className="bp-canvas-toolbar-sep" aria-hidden="true" />
             <Select
               size="small"
-              ref={nodeFinderRef as unknown as React.Ref<any>}
+              ref={nodeFinderRef}
               className="bp-canvas-toolbar-select"
               classNames={{ popup: { root: "bp-canvas-toolbar-select-dropdown" } }}
               placeholder="Find node (Ctrl/Cmd+F)"

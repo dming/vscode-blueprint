@@ -86,9 +86,18 @@ export interface BlueprintClassDeclaration {
     extends?: string;
 }
 
+/**
+ * Native / static function registered with {@link BlueprintFactory.regFunction}.
+ * Method-style alias so implementations with concrete parameter lists remain assignable
+ * (same idea as React’s `bivarianceHack` for callbacks — no `any[]`).
+ */
+export type BlueprintNativeCallable = {
+    __blueprintCallable(...args: unknown[]): unknown | void;
+}['__blueprintCallable'];
+
 export type BlueprintRegFunction = (
     fname: string,
-    fun: ((...args: unknown[]) => unknown) | null,
+    fun: (BlueprintNativeCallable | null),
     isMember?: boolean,
     cls?: object | null,
     target?: string,
@@ -101,7 +110,7 @@ export type BlueprintGetClass = (ext: string) => unknown;
  * Static list labels are documented by {@link BlueprintBuiltinPinType}; `initBlock` may
  * rewrite `type` at runtime (`BlueprintData.formatType`), so this stays `string`.
  */
-export interface BlueprintBuiltinIoDef extends BlueprintIoDef {}
+export type BlueprintBuiltinIoDef = BlueprintIoDef;
 
 /** Minimal shape for builtin entries in `BlueprintDataList` */
 export interface BlueprintBuiltinEntry {

@@ -10,7 +10,7 @@ import type { RuntimeDataManager } from "../RuntimeDataManager";
 
 export class BlueprintCustomFunReturn extends BlueprintRuntimeBaseNode {
     public inExecutes: BlueprintPinRuntime[];
-    public nid: string | number;
+    public nid!: string | number;
     constructor() {
         super();
         this.inExecutes = [];
@@ -25,7 +25,7 @@ export class BlueprintCustomFunReturn extends BlueprintRuntimeBaseNode {
         runId: number,
         fromPin: BlueprintPinRuntime | null,
         prePin: BlueprintPinRuntime | null,
-    ) {
+    ): unknown {
         super.step(
             context,
             runtimeDataMgr,
@@ -36,10 +36,11 @@ export class BlueprintCustomFunReturn extends BlueprintRuntimeBaseNode {
             fromPin,
             prePin,
         );
-        let nodeContext = runtimeDataMgr.getDataById<BlueprintCustomFunReturnContext>(this.nid)!;
-        let index = this.inExecutes.indexOf(fromPin);
+        const nodeContext = runtimeDataMgr.getDataById<BlueprintCustomFunReturnContext>(this.nid)!;
+        const index =
+            fromPin == null ? -1 : this.inExecutes.indexOf(fromPin);
         if (index == 0) {
-            let curRunId = nodeContext.runIdMap.get(runId);
+            const curRunId = nodeContext.runIdMap.get(runId);
             nodeContext.returnResult(runId, curRunId);
         } else {
             nodeContext.returnResult(runId, runId);
@@ -59,7 +60,7 @@ export class BlueprintCustomFunReturn extends BlueprintRuntimeBaseNode {
         runner: BluePrintBlock,
         oldRuntimeDataMgr: RuntimeDataManager,
     ) {
-        let data = runtimeDataMgr.getDataById<BlueprintCustomFunReturnContext>(this.nid)!;
+        const data = runtimeDataMgr.getDataById<BlueprintCustomFunReturnContext>(this.nid)!;
         data.initData(curRunId, runId, parms, offset, outExecutes, runner, oldRuntimeDataMgr);
     }
 
