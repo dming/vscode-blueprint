@@ -1,6 +1,13 @@
 import type { BlueprintDocument, BlueprintEdge, BlueprintGraphBody, BlueprintNode } from "../blueprint/documentModel";
 import {
+  NODE_VALUE_DISPATCHER_ID,
+  NODE_VALUE_FUNCTION_ID,
+  NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID,
   NODE_VALUE_LIFECYCLE_HOOK,
+  TEMPLATE_BIND_DISPATCHER_LISTENER,
+  TEMPLATE_BROADCAST_DISPATCHER,
+  TEMPLATE_CLEAR_DISPATCHER_LISTENERS,
+  TEMPLATE_DISPATCHER_ENTRY,
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
   TEMPLATE_INVOKE_FUNCTION,
@@ -117,14 +124,18 @@ function topoOrderExec(g: BlueprintGraphBody, preferredRoots: string[]): string[
   return result;
 }
 
-function findPreferredRootsMain(g: BlueprintGraphBody): string[] {
+function findPreferredRootsMain(g: BlueprintGraphBody, globalListenTemplate?: string): string[] {
   const roots = g.nodes.filter((n) => n.isRoot === true).map((n) => n.id);
   if (roots.length > 0) {
     return roots;
   }
   const ev = g.nodes.filter((n) => n.template === "Event.Start").map((n) => n.id);
-  if (ev.length > 0) {
-    return ev;
+  const gel = globalListenTemplate
+    ? g.nodes.filter((n) => n.template === globalListenTemplate).map((n) => n.id)
+    : [];
+  const merged = [...new Set([...ev, ...gel])].sort((a, b) => a.localeCompare(b));
+  if (merged.length > 0) {
+    return merged;
   }
   const incoming = execIncomingCount(g);
   return g.nodes.filter((n) => (incoming.get(n.id) ?? 0) === 0).map((n) => n.id);
@@ -139,32 +150,101 @@ function findPreferredRootsFunction(g: BlueprintGraphBody): string[] {
   return g.nodes.filter((n) => (incoming.get(n.id) ?? 0) === 0).map((n) => n.id);
 }
 
+function findPreferredRootsDispatcher(g: BlueprintGraphBody): string[] {
+  const ent = g.nodes.filter((n) => n.template === TEMPLATE_DISPATCHER_ENTRY).map((n) => n.id);
+  if (ent.length > 0) {
+    return ent;
+  }
+  const incoming = execIncomingCount(g);
+  return g.nodes.filter((n) => (incoming.get(n.id) ?? 0) === 0).map((n) => n.id);
+}
+
 function escapeStringLiteral(s: string): string {
   return JSON.stringify(s);
 }
 
-function emitNodeLine(node: BlueprintNode, validFn: Set<string>): string {
+type EmitRefs = {
+  validFn: Set<string>;
+  validDispatcher: Set<string>;
+  globalEventEmitTemplate?: string;
+  globalEventListenTemplate?: string;
+};
+
+function emitNodeLine(node: BlueprintNode, refs: EmitRefs): string {
   const t = node.template ?? "";
   const ind = "  ";
 
-  if (t === "Event.Start" || t === TEMPLATE_FUNCTION_ENTRY) {
+  if (t === "Event.Start" || t === TEMPLATE_FUNCTION_ENTRY || t === TEMPLATE_DISPATCHER_ENTRY) {
     const lh = (node.values?.[NODE_VALUE_LIFECYCLE_HOOK] ?? "").trim();
     const tag = lh ? ` — ${lh}` : "";
     return `${ind}// ▶ ${node.title}${tag} (${t || "entry"})`;
+  }
+  if (refs.globalEventListenTemplate && t === refs.globalEventListenTemplate) {
+    const cid = (node.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] ?? "").trim();
+    const tag = cid ? ` — ${cid}` : "";
+    return `${ind}// ▶ ${node.title}${tag} (${t})`;
   }
   if (t === TEMPLATE_FUNCTION_RETURN) {
     return `${ind}return;`;
   }
   if (t === TEMPLATE_INVOKE_FUNCTION) {
-    const fid = (node.values?.functionId ?? "").trim();
+    const fid = (node.values?.[NODE_VALUE_FUNCTION_ID] ?? "").trim();
     if (!fid) {
       return `${ind}// TODO: InvokeFunction — no target selected`;
     }
-    if (!validFn.has(fid)) {
+    if (!refs.validFn.has(fid)) {
       return `${ind}// TODO: InvokeFunction — unknown function ${escapeStringLiteral(fid)}`;
     }
     const name = sanitizeIdent(fid);
     return `${ind}await ${name}(ctx);`;
+  }
+  if (t === TEMPLATE_BROADCAST_DISPATCHER) {
+    const did = (node.values?.[NODE_VALUE_DISPATCHER_ID] ?? "").trim();
+    if (!did) {
+      return `${ind}// TODO: BroadcastDispatcher — no target selected`;
+    }
+    if (!refs.validDispatcher.has(did)) {
+      return `${ind}// TODO: BroadcastDispatcher — unknown dispatcher ${escapeStringLiteral(did)}`;
+    }
+    const name = sanitizeIdent(did);
+    return `${ind}await ctx.dispatchers.${name}(ctx);\n${ind}for (const _h of ctx.dispatcherListeners.${name}) {\n${ind}  await _h(ctx);\n${ind}}`;
+  }
+  if (t === TEMPLATE_BIND_DISPATCHER_LISTENER) {
+    const did = (node.values?.[NODE_VALUE_DISPATCHER_ID] ?? "").trim();
+    const fid = (node.values?.[NODE_VALUE_FUNCTION_ID] ?? "").trim();
+    if (!did) {
+      return `${ind}// TODO: BindDispatcherListener — no dispatcher selected`;
+    }
+    if (!fid) {
+      return `${ind}// TODO: BindDispatcherListener — no function selected`;
+    }
+    if (!refs.validDispatcher.has(did)) {
+      return `${ind}// TODO: BindDispatcherListener — unknown dispatcher ${escapeStringLiteral(did)}`;
+    }
+    if (!refs.validFn.has(fid)) {
+      return `${ind}// TODO: BindDispatcherListener — unknown function ${escapeStringLiteral(fid)}`;
+    }
+    const dname = sanitizeIdent(did);
+    const fname = sanitizeIdent(fid);
+    return `${ind}ctx.dispatcherListeners.${dname}.push((c) => ${fname}(c));`;
+  }
+  if (t === TEMPLATE_CLEAR_DISPATCHER_LISTENERS) {
+    const did = (node.values?.[NODE_VALUE_DISPATCHER_ID] ?? "").trim();
+    if (!did) {
+      return `${ind}// TODO: ClearDispatcherListeners — no dispatcher selected`;
+    }
+    if (!refs.validDispatcher.has(did)) {
+      return `${ind}// TODO: ClearDispatcherListeners — unknown dispatcher ${escapeStringLiteral(did)}`;
+    }
+    const name = sanitizeIdent(did);
+    return `${ind}ctx.dispatcherListeners.${name}.length = 0;`;
+  }
+  if (refs.globalEventEmitTemplate && t === refs.globalEventEmitTemplate) {
+    const cid = (node.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] ?? "").trim();
+    if (!cid) {
+      return `${ind}// TODO: GlobalEvent.Emit — no channel selected`;
+    }
+    return `${ind}await ctx.globalEvents.emit(${escapeStringLiteral(cid)}, {}); // add payload from data pins when supported`;
   }
   if (t === "Debug.Print") {
     const text = node.values?.text ?? "";
@@ -184,19 +264,34 @@ function emitNodeLine(node: BlueprintNode, validFn: Set<string>): string {
   return `${ind}// TODO: ${node.title} template=${escapeStringLiteral(t || "(none)")} id=${escapeStringLiteral(node.id)}`;
 }
 
+type GraphEmitKind = "main" | "function" | "dispatcher";
+
 function emitGraphFunction(
   exportName: string,
   graph: BlueprintGraphBody,
-  validFn: Set<string>,
-  isMain: boolean
+  refs: EmitRefs,
+  kind: GraphEmitKind
 ): string {
-  const roots = isMain ? findPreferredRootsMain(graph) : findPreferredRootsFunction(graph);
+  const roots =
+    kind === "main"
+      ? findPreferredRootsMain(graph)
+      : kind === "function"
+        ? findPreferredRootsFunction(graph)
+        : findPreferredRootsDispatcher(graph);
   const order = topoOrderExec(graph, roots);
   const nodeById = nodeMapOf(graph);
 
   const lines: string[] = [];
   lines.push(`/**`);
-  lines.push(` * ${isMain ? "Event / main" : `Function "${graph.name}"`} graph (${graph.id})`);
+  lines.push(
+    ` * ${
+      kind === "main"
+        ? "Event / main"
+        : kind === "function"
+          ? `Function "${graph.name}"`
+          : `Dispatcher "${graph.name}"`
+    } graph (${graph.id})`
+  );
   lines.push(` */`);
   lines.push(`export async function ${exportName}(ctx: BlueprintRuntimeContext): Promise<void> {`);
 
@@ -208,7 +303,7 @@ function emitGraphFunction(
       if (!n) {
         continue;
       }
-      lines.push(emitNodeLine(n, validFn));
+      lines.push(emitNodeLine(n, refs));
     }
   }
 
@@ -220,6 +315,9 @@ function emitGraphFunction(
 export type EmitTypeScriptOptions = {
   sourceRelPath: string;
   generatedAt: string;
+  /** From blueprint.config.json `runtimeTemplates` (optional). */
+  globalEventEmitTemplate?: string;
+  globalEventListenTemplate?: string;
 };
 
 /**
@@ -231,6 +329,7 @@ export function emitTypeScriptFromBlueprint(
   options: EmitTypeScriptOptions
 ): string {
   const validFn = new Set(doc.functions.map((f) => f.id));
+  const validDispatcher = new Set(doc.dispatchers.map((d) => d.id));
   const header: string[] = [];
   header.push(`/**`);
   header.push(` * Auto-generated from blueprint (TypeScript)`);
@@ -242,31 +341,100 @@ export function emitTypeScriptFromBlueprint(
   header.push(``);
   header.push(`/* eslint-disable no-console */`);
   header.push(``);
+  header.push(`/**`);
+  header.push(` * Runtime multicast (UE-style event dispatchers):`);
+  header.push(` * - \`dispatchers[id]\` runs the static listener subgraph (\`dispatch_*\` export).`);
+  header.push(` * - \`BroadcastDispatcher\` awaits that, then every handler in \`dispatcherListeners[id]\`.`);
+  header.push(` * - \`BindDispatcherListener\` pushes \`(ctx) => fn(ctx)\` onto \`dispatcherListeners[id]\`.`);
+  header.push(` * - \`ClearDispatcherListeners\` sets \`dispatcherListeners[id].length = 0\` (static graph unchanged).`);
+  header.push(` */`);
   header.push(`export interface BlueprintRuntimeContext {`);
   header.push(`  /** Blueprint-level variables (graph.variables). */`);
   header.push(`  variables: Record<string, unknown>;`);
   header.push(`  /** Scratch / node outputs by node id. */`);
   header.push(`  slots: Record<string, unknown>;`);
-  header.push(`}`);
-  header.push(``);
-  header.push(`export function createBlueprintContext(): BlueprintRuntimeContext {`);
-  header.push(`  return { variables: {}, slots: {} };`);
+  header.push(
+    `  /** Static dispatcher listener per sanitized id (see \`dispatch_*\` exports). */`
+  );
+  header.push(
+    `  dispatchers: Record<string, (ctx: BlueprintRuntimeContext) => Promise<void>>;`
+  );
+  header.push(`  /** Dynamic listeners registered by BindDispatcherListener (same keys as dispatchers). */`);
+  header.push(
+    `  dispatcherListeners: Record<string, Array<(ctx: BlueprintRuntimeContext) => Promise<void>>>;`
+  );
+  header.push(
+    `  /** Cross-blueprint channel bus; host implements (see global event nodes in blueprint.config.json). */`
+  );
+  header.push(
+    `  globalEvents: { emit(channelId: string, payload: Record<string, unknown>): Promise<void> | void };`
+  );
   header.push(`}`);
   header.push(``);
 
   const parts: string[] = [...header];
 
+  const refs: EmitRefs = {
+    validFn,
+    validDispatcher,
+    globalEventEmitTemplate: options.globalEventEmitTemplate?.trim() || undefined,
+    globalEventListenTemplate: options.globalEventListenTemplate?.trim() || undefined,
+  };
+
   const fnBodies = [...doc.functions].sort((a, b) => a.id.localeCompare(b.id));
   for (const f of fnBodies) {
     const name = sanitizeIdent(f.id);
-    parts.push(emitGraphFunction(name, f, validFn, false));
+    parts.push(emitGraphFunction(name, f, refs, "function"));
+  }
+
+  const dispBodies = [...doc.dispatchers].sort((a, b) => a.id.localeCompare(b.id));
+  for (const d of dispBodies) {
+    const name = sanitizeIdent(d.id);
+    parts.push(emitGraphFunction(`dispatch_${name}`, d.graph, refs, "dispatcher"));
   }
 
   const mainName = `run_${sanitizeIdent(doc.graph.name || doc.graph.id || "Main")}`;
-  parts.push(emitGraphFunction(mainName, doc.graph, validFn, true));
+  parts.push(emitGraphFunction(mainName, doc.graph, refs, "main"));
+
+  parts.push(emitCreateBlueprintContext(doc));
+  parts.push(``);
 
   parts.push(`export default ${mainName};`);
   parts.push(``);
 
   return parts.join("\n");
+}
+
+function emitCreateBlueprintContext(doc: BlueprintDocument): string {
+  const lines: string[] = [];
+  const sorted = [...doc.dispatchers].sort((a, b) => a.id.localeCompare(b.id));
+  lines.push(`export function createBlueprintContext(): BlueprintRuntimeContext {`);
+  lines.push(`  return {`);
+  lines.push(`    variables: {},`);
+  lines.push(`    slots: {},`);
+  if (sorted.length === 0) {
+    lines.push(`    dispatchers: {},`);
+    lines.push(`    dispatcherListeners: {},`);
+  } else {
+    lines.push(`    dispatchers: {`);
+    for (const d of sorted) {
+      const name = sanitizeIdent(d.id);
+      lines.push(`      ${name}: (ctx) => dispatch_${name}(ctx),`);
+    }
+    lines.push(`    },`);
+    lines.push(`    dispatcherListeners: {`);
+    for (const d of sorted) {
+      const name = sanitizeIdent(d.id);
+      lines.push(`      ${name}: [],`);
+    }
+    lines.push(`    },`);
+  }
+  lines.push(`    globalEvents: {`);
+  lines.push(`      async emit(_channelId: string, _payload: Record<string, unknown>): Promise<void> {`);
+  lines.push(`        /* host replaces ctx.globalEvents */`);
+  lines.push(`      },`);
+  lines.push(`    },`);
+  lines.push(`  };`);
+  lines.push(`}`);
+  return lines.join("\n");
 }

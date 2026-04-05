@@ -7,7 +7,7 @@
       {
         "id": "print_hello",
         "title": "Print",
-        "x": 400,
+        "x": 720,
         "y": 80,
         "inputs": [
           {
@@ -31,83 +31,9 @@
         "isRoot": false
       },
       {
-        "id": "math_add",
-        "title": "Add Int",
-        "x": 400,
-        "y": 620,
-        "inputs": [
-          {
-            "name": "a",
-            "type": "number"
-          },
-          {
-            "name": "b",
-            "type": "number"
-          }
-        ],
-        "outputs": [
-          {
-            "name": "result",
-            "type": "number"
-          }
-        ],
-        "values": {
-          "a": "1",
-          "b": "333"
-        },
-        "description": "随便输入一点描述，看看这个节点是干嘛用的",
-        "isRoot": false
-      },
-      {
-        "id": "node_nuflc6",
-        "title": "Event Start",
-        "x": 80,
-        "y": 800,
-        "inputs": [
-          {
-            "name": "in",
-            "type": "exec"
-          }
-        ],
-        "outputs": [
-          {
-            "name": "exec",
-            "type": "exec"
-          }
-        ],
-        "isRoot": false
-      },
-      {
-        "id": "node_nvwn0z",
-        "title": "Add Int",
-        "x": 80,
-        "y": 620,
-        "inputs": [
-          {
-            "name": "a",
-            "type": "number"
-          },
-          {
-            "name": "b",
-            "type": "number"
-          }
-        ],
-        "outputs": [
-          {
-            "name": "result",
-            "type": "number"
-          }
-        ],
-        "values": {
-          "a": "1",
-          "b": "2"
-        },
-        "isRoot": false
-      },
-      {
         "id": "node_d4sy6w",
         "title": "Printsss",
-        "x": 720,
+        "x": 1040,
         "y": 80,
         "inputs": [
           {
@@ -133,8 +59,8 @@
       {
         "id": "node_bgihbj",
         "title": "Print",
-        "x": 400,
-        "y": 440,
+        "x": 377,
+        "y": 430,
         "inputs": [
           {
             "name": "exec",
@@ -176,12 +102,39 @@
         }
       },
       {
+        "id": "broadcast_health",
+        "title": "Broadcast Dispatcher",
+        "template": "Flow.BroadcastDispatcher",
+        "x": 404,
+        "y": 58,
+        "inputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          },
+          {
+            "name": "payload_9tx4",
+            "type": "number"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "dispatcherId": "disp_7r8mycc"
+        },
+        "isRoot": false
+      },
+      {
         "id": "node_uxpej9",
         "title": "onUpdate",
         "template": "Event.Start",
         "description": "Blueprint execution entry.",
-        "x": 80,
-        "y": 440,
+        "x": 67,
+        "y": 462,
         "inputs": [],
         "outputs": [
           {
@@ -241,33 +194,47 @@
         "values": {
           "text": "Hello from Blueprint sample"
         }
+      },
+      {
+        "id": "node_lz2617",
+        "title": "Invoke Function",
+        "template": "Flow.InvokeFunction",
+        "description": "Call a user function (set target in Inspector, or drag the function from My Blueprint onto the canvas).",
+        "x": 652.0078395341659,
+        "y": 530.3456963531029,
+        "inputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          },
+          {
+            "name": "param_w3py",
+            "type": "number"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exec",
+            "type": "exec"
+          }
+        ],
+        "values": {
+          "functionId": "fn_c7mt3wx",
+          "param_w3py": "-1"
+        }
       }
     ],
     "edges": [
       {
-        "id": "node_nvwn0z:result->math_add:a",
-        "fromNodeId": "node_nvwn0z",
-        "fromPin": "result",
-        "toNodeId": "math_add",
-        "toPin": "a"
-      },
-      {
-        "id": "node_nvwn0z:result->math_add:b",
-        "fromNodeId": "node_nvwn0z",
-        "fromPin": "result",
-        "toNodeId": "math_add",
-        "toPin": "b"
-      },
-      {
-        "id": "print_hello:exec->node_d4sy6w:exec",
-        "fromNodeId": "print_hello",
+        "id": "node_m84qhu:exec->broadcast_health:exec",
+        "fromNodeId": "node_m84qhu",
         "fromPin": "exec",
-        "toNodeId": "node_d4sy6w",
+        "toNodeId": "broadcast_health",
         "toPin": "exec"
       },
       {
-        "id": "node_m84qhu:exec->print_hello:exec",
-        "fromNodeId": "node_m84qhu",
+        "id": "broadcast_health:exec->print_hello:exec",
+        "fromNodeId": "broadcast_health",
         "fromPin": "exec",
         "toNodeId": "print_hello",
         "toPin": "exec"
@@ -285,6 +252,27 @@
         "fromPin": "exec",
         "toNodeId": "node_hrgjve",
         "toPin": "exec"
+      },
+      {
+        "id": "node_bgihbj:exec->node_lz2617:exec",
+        "fromNodeId": "node_bgihbj",
+        "fromPin": "exec",
+        "toNodeId": "node_lz2617",
+        "toPin": "exec"
+      },
+      {
+        "id": "node_lz2617:exec->node_d4sy6w:exec",
+        "fromNodeId": "node_lz2617",
+        "fromPin": "exec",
+        "toNodeId": "node_d4sy6w",
+        "toPin": "exec"
+      },
+      {
+        "id": "node_uxpej9:deltaTime->node_lz2617:param_w3py",
+        "fromNodeId": "node_uxpej9",
+        "fromPin": "deltaTime",
+        "toNodeId": "node_lz2617",
+        "toPin": "param_w3py"
       }
     ],
     "variables": [
@@ -346,20 +334,24 @@
     },
     {
       "id": "fn_c7mt3wx",
-      "name": "NewFunction",
+      "name": "testFunc2",
       "nodes": [
         {
           "id": "fn_entry_0fj1b",
           "title": "Function Entry",
           "template": "Flow.FunctionEntry",
           "isRoot": true,
-          "x": 100,
-          "y": 120,
+          "x": 214,
+          "y": 172,
           "inputs": [],
           "outputs": [
             {
               "name": "exec",
               "type": "exec"
+            },
+            {
+              "name": "param_w3py",
+              "type": "number"
             }
           ]
         },
@@ -367,8 +359,8 @@
           "id": "fn_return_0fj1b",
           "title": "Return",
           "template": "Flow.FunctionReturn",
-          "x": 520,
-          "y": 120,
+          "x": 642,
+          "y": 194,
           "inputs": [
             {
               "name": "exec",
@@ -388,6 +380,66 @@
         }
       ],
       "variables": []
+    }
+  ],
+  "dispatchers": [
+    {
+      "id": "disp_6a1h10q",
+      "name": "NewDispatcher",
+      "graph": {
+        "id": "disp_6a1h10q",
+        "name": "NewDispatcher",
+        "nodes": [
+          {
+            "id": "disp_entry_jfdq3",
+            "title": "Dispatcher Entry",
+            "template": "Flow.DispatcherEntry",
+            "isRoot": true,
+            "x": 137,
+            "y": 246,
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "exec",
+                "type": "exec"
+              }
+            ]
+          }
+        ],
+        "edges": [],
+        "variables": []
+      }
+    },
+    {
+      "id": "disp_7r8mycc",
+      "name": "NewDispatcher_1",
+      "graph": {
+        "id": "disp_7r8mycc",
+        "name": "NewDispatcher_1",
+        "nodes": [
+          {
+            "id": "disp_entry_7bcug",
+            "title": "Dispatcher Entry",
+            "template": "Flow.DispatcherEntry",
+            "isRoot": true,
+            "x": 105.7256119562687,
+            "y": 196.72320021400046,
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "exec",
+                "type": "exec"
+              },
+              {
+                "name": "payload_9tx4",
+                "type": "number"
+              }
+            ]
+          }
+        ],
+        "edges": [],
+        "variables": []
+      }
     }
   ],
   "inherits": "Component",

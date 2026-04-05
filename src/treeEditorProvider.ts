@@ -3,9 +3,16 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { runBuild } from "./build/runBuild";
 import { getBlueprintOutputChannel } from "./outputChannel";
+import {
+  parseGlobalEventChannels,
+  parseRuntimeGlobalEventTemplates,
+  DEFAULT_GLOBAL_EVENT_EMIT_TEMPLATE,
+  DEFAULT_GLOBAL_EVENT_LISTEN_TEMPLATE,
+} from "./blueprint/parseBlueprintConfig";
 import type {
   BaseClassDef,
   EditorToHostMessage,
+  GlobalEventChannelDef,
   HostToEditorMessage,
   LifecycleHookDef,
   NodeDef,
@@ -238,13 +245,29 @@ async function resolveBlueprintConfigUri(
   }
 }
 
+export type LoadedBlueprintEditorConfig = {
+  nodeDefs: NodeDef[];
+  baseClasses: BaseClassDef[];
+  globalEventChannels: GlobalEventChannelDef[];
+  globalEventEmitTemplate: string;
+  globalEventListenTemplate: string;
+};
+
+const emptyEditorConfig = (): LoadedBlueprintEditorConfig => ({
+  nodeDefs: [],
+  baseClasses: [],
+  globalEventChannels: [],
+  globalEventEmitTemplate: DEFAULT_GLOBAL_EVENT_EMIT_TEMPLATE,
+  globalEventListenTemplate: DEFAULT_GLOBAL_EVENT_LISTEN_TEMPLATE,
+});
+
 async function loadBlueprintEditorConfig(
   workdirUri: vscode.Uri,
   documentUri: vscode.Uri
-): Promise<{ nodeDefs: NodeDef[]; baseClasses: BaseClassDef[] }> {
+): Promise<LoadedBlueprintEditorConfig> {
   const cfgUri = await resolveBlueprintConfigUri(workdirUri, documentUri);
   if (!cfgUri) {
-    return { nodeDefs: [], baseClasses: [] };
+    return emptyEditorConfig();
   }
   try {
     const text = Buffer.from(await vscode.workspace.fs.readFile(cfgUri)).toString("utf-8");
@@ -257,10 +280,18 @@ async function loadBlueprintEditorConfig(
         : [];
     const nodeDefs = list.map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
     const baseClasses = parseBaseClasses(parsed);
-    return { nodeDefs, baseClasses };
+    const globalEventChannels = parseGlobalEventChannels(parsed);
+    const rt = parseRuntimeGlobalEventTemplates(parsed);
+    return {
+      nodeDefs,
+      baseClasses,
+      globalEventChannels,
+      globalEventEmitTemplate: rt.globalEventEmit,
+      globalEventListenTemplate: rt.globalEventListen,
+    };
   } catch (e) {
     getBlueprintOutputChannel().warn(`Failed to load blueprint.config.json: ${String(e)}`);
-    return { nodeDefs: [], baseClasses: [] };
+    return emptyEditorConfig();
   }
 }
 
@@ -296,6 +327,9 @@ export class TreeEditorProvider implements vscode.CustomTextEditorProvider {
         type: "settingLoaded",
         nodeDefs: cachedConfig.nodeDefs,
         baseClasses: cachedConfig.baseClasses,
+        globalEventChannels: cachedConfig.globalEventChannels,
+        globalEventEmitTemplate: cachedConfig.globalEventEmitTemplate,
+        globalEventListenTemplate: cachedConfig.globalEventListenTemplate,
       };
       webviewPanel.webview.postMessage(msg);
     };
@@ -332,6 +366,9 @@ export class TreeEditorProvider implements vscode.CustomTextEditorProvider {
             extensionVersion: String(this._context.extension.packageJSON.version ?? ""),
             nodeDefs: cachedConfig.nodeDefs,
             baseClasses: cachedConfig.baseClasses,
+            globalEventChannels: cachedConfig.globalEventChannels,
+            globalEventEmitTemplate: cachedConfig.globalEventEmitTemplate,
+            globalEventListenTemplate: cachedConfig.globalEventListenTemplate,
             checkExpr: false,
             language: "en",
             nodeLayout: "normal",

@@ -6,6 +6,7 @@ import { TreeEditorProvider } from "../treeEditorProvider";
 import { normalizeBlueprintDocumentValue } from "../blueprint/documentModel";
 import { compileBlueprintDocument } from "./compileBlueprint";
 import { emitTypeScriptFromBlueprint } from "./emitTypeScript";
+import { loadValidateOptionsForBlueprint, loadEmitOptionsForBlueprint } from "./loadBlueprintConfigForBuild";
 import { type BlueprintDocument, type BuildIssue, validateBlueprintDocument } from "./validateBlueprintDocument";
 
 const WORKSPACE_STATE_KEY_PREFIX = "blueprint.lastBuildOutputDir:";
@@ -182,7 +183,8 @@ export async function runBuild(
         const raw = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf-8");
         const doc = JSON.parse(raw) as BlueprintDocument;
         const rel = path.relative(workspaceRoot, uri.fsPath).replace(/\\/g, "/");
-        const validationIssues = validateBlueprintDocument(doc, rel);
+        const validateOpts = loadValidateOptionsForBlueprint(workspaceRoot, uri.fsPath);
+        const validationIssues = validateBlueprintDocument(doc, rel, validateOpts);
         if (validationIssues.length > 0) {
           for (const issue of validationIssues) {
             issues.push(issue);
@@ -213,9 +215,12 @@ export async function runBuild(
         };
         await fs.promises.writeFile(outFile, JSON.stringify(compiledPayload, null, 2), "utf-8");
         const tsOut = path.join(outputDirFs, rel.replace(/\.bp\.json$/i, ".generated.ts"));
+        const emitTpl = loadEmitOptionsForBlueprint(workspaceRoot, uri.fsPath);
         const tsSource = emitTypeScriptFromBlueprint(normalized, {
           sourceRelPath: rel,
           generatedAt: compilation.generatedAt,
+          globalEventEmitTemplate: emitTpl.globalEventEmitTemplate,
+          globalEventListenTemplate: emitTpl.globalEventListenTemplate,
         });
         await fs.promises.writeFile(tsOut, tsSource, "utf-8");
         out.info(`Built: ${rel}`);

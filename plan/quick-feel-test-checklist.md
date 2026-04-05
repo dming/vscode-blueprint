@@ -55,6 +55,14 @@
   - Build Issues 出现 multi-root warning
   - 额外 root 节点（非第一个 root）在画布上高亮
 
+## 7. Event Dispatchers（约1分钟）
+
+- [ ] 左栏 **Event Dispatchers** 可新增调度器，单击进入监听子图，**返回事件图** 可回到主图
+- [ ] 监听图中选中 `Dispatcher Entry`，Inspector 可为载荷增加/改名/删除引脚（exec 不可删）
+- [ ] 主图 `Broadcast Dispatcher` 在 Inspector 中选目标后，输入引脚与对应 Entry 的载荷同步
+- [ ] 重命名调度器：显示名与技术 ID 均可改；改 ID 后 Broadcast/Bind/Clear 的引用随之更新
+- [ ] `npm run test:build-validation` 通过；生成 TS 中 Broadcast 为 `await ctx.dispatchers...` 且含 `dispatcherListeners` 循环（若存在 Bind）
+
 ---
 
 ## 测试反馈模板（可直接复制）

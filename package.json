@@ -2,7 +2,7 @@
   "name": "vscode-blueprint-editor",
   "displayName": "Blueprint Editor",
   "description": "Visual blueprint graph editor for game workflows",
-  "version": "2.0.1-46",
+  "version": "2.0.1-52",
   "publisher": "dming",
   "repository": {
     "type": "git",

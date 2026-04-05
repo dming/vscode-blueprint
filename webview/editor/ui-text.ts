@@ -198,6 +198,70 @@ export const UI_TEXT = {
     "zh-CN": "删除",
     en: "Delete",
   },
+  dispatcherDeleteConfirmTitle: {
+    "zh-CN": "删除事件调度器？",
+    en: "Delete event dispatcher?",
+  },
+  dispatcherDeleteConfirmContent: {
+    "zh-CN": "将删除「{name}」及其监听图，并清除主图/函数图中对该调度器的广播/绑定/清除节点引用。",
+    en: 'Remove "{name}" and its listener graph, and clear nodes that target it (broadcast, bind, clear).',
+  },
+  dispatcherDeleteOk: {
+    "zh-CN": "删除",
+    en: "Delete",
+  },
+  dispatcherRenameModalTitle: {
+    "zh-CN": "重命名事件调度器",
+    en: "Rename event dispatcher",
+  },
+  dispatcherRenamePlaceholder: {
+    "zh-CN": "显示名称",
+    en: "Display name",
+  },
+  dispatcherTechnicalIdLabel: {
+    "zh-CN": "技术 ID（用于生成代码与引用）",
+    en: "Technical id (code / references)",
+  },
+  dispatcherTechnicalIdPlaceholder: {
+    "zh-CN": "例如 disp_health",
+    en: "e.g. disp_health",
+  },
+  dispatcherRenameIdConflictTitle: {
+    "zh-CN": "无法使用该 ID",
+    en: "Cannot use this id",
+  },
+  dispatcherRenameIdConflictBody: {
+    "zh-CN": "该 ID 已被其他函数或调度器使用，或格式无效。",
+    en: "This id is already used by another function or dispatcher, or is invalid.",
+  },
+  dispatcherEntryAddPayloadPin: {
+    "zh-CN": "添加负载引脚",
+    en: "Add payload pin",
+  },
+  dispatcherEntryRemovePayloadPin: {
+    "zh-CN": "删除",
+    en: "Remove",
+  },
+  functionEntryAddPayloadPin: {
+    "zh-CN": "添加输入参数引脚",
+    en: "Add input parameter pin",
+  },
+  functionEntryRemovePayloadPin: {
+    "zh-CN": "删除",
+    en: "Remove",
+  },
+  functionReturnAddPayloadPin: {
+    "zh-CN": "添加返回值引脚",
+    en: "Add return value pin",
+  },
+  functionReturnRemovePayloadPin: {
+    "zh-CN": "删除",
+    en: "Remove",
+  },
+  functionRowDragInvokeHint: {
+    "zh-CN": "拖到画布以插入「调用函数」节点",
+    en: "Drag onto the canvas to add an Invoke Function node",
+  },
   invokeFunctionTargetLabel: {
     "zh-CN": "调用的函数",
     en: "Call target",
@@ -205,6 +269,46 @@ export const UI_TEXT = {
   invokeFunctionTargetPlaceholder: {
     "zh-CN": "选择 functions 中的一项",
     en: "Pick a function from the document",
+  },
+  invokeNodeCanvasNoFunction: {
+    "zh-CN": "未选择函数",
+    en: "No function selected",
+  },
+  bindDispatcherNodeCanvasNoTarget: {
+    "zh-CN": "未选择调度器 / 函数",
+    en: "No dispatcher / function selected",
+  },
+  broadcastDispatcherNodeCanvasNoDispatcher: {
+    "zh-CN": "未选择调度器",
+    en: "No dispatcher selected",
+  },
+  clearDispatcherNodeCanvasNoDispatcher: {
+    "zh-CN": "未选择调度器",
+    en: "No dispatcher selected",
+  },
+  globalEventNodeCanvasNoChannel: {
+    "zh-CN": "未选择通道",
+    en: "No channel selected",
+  },
+  broadcastDispatcherTargetLabel: {
+    "zh-CN": "广播目标调度器",
+    en: "Broadcast dispatcher",
+  },
+  broadcastDispatcherTargetPlaceholder: {
+    "zh-CN": "选择 dispatchers 中的一项",
+    en: "Pick a dispatcher from the document",
+  },
+  globalEventChannelLabel: {
+    "zh-CN": "全局事件通道",
+    en: "Global event channel",
+  },
+  globalEventChannelPlaceholder: {
+    "zh-CN": "选择 globalEventChannels 中的一项",
+    en: "Pick a channel from blueprint.config.json",
+  },
+  inspectorEditingDispatcher: {
+    "zh-CN": "正在编辑事件调度器「{name}」。可点左侧「返回事件图」回到主事件图。",
+    en: 'Editing event dispatcher "{name}". Use “Back to event graph” to return to the main graph.',
   },
   myBlueprintDispatchersLater: {
     "zh-CN": "事件分发器将在后续版本支持。",
@@ -219,8 +323,8 @@ export const UI_TEXT = {
     en: "Add variable",
   },
   myBlueprintAddDispatcherAria: {
-    "zh-CN": "添加事件分发器（尚未支持）",
-    en: "Add event dispatcher (not available yet)",
+    "zh-CN": "添加事件调度器",
+    en: "Add event dispatcher",
   },
   myBlueprintRemoveVariableAria: {
     "zh-CN": "删除变量",

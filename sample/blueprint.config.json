@@ -16,6 +16,14 @@
       ]
     }
   },
+  "globalEventChannels": [
+    { "id": "game.pause", "payload": [] },
+    { "id": "ui.toast", "payload": ["message:string", "severity:number"] }
+  ],
+  "runtimeTemplates": {
+    "globalEventEmit": "Engine.GlobalEvent.Emit",
+    "globalEventListen": "Engine.GlobalEvent.Listen"
+  },
   "nodeDefs": [
     {
       "name": "Event.Start",
@@ -52,14 +60,14 @@
       "title": "Function Entry",
       "category": "Flow",
       "outputs": ["exec:exec"],
-      "desc": "Execution entry for a function graph."
+      "desc": "Function graph entry; add output pins for parameters (they appear as inputs on Invoke Function nodes)."
     },
     {
       "name": "Flow.FunctionReturn",
       "title": "Return",
       "category": "Flow",
       "inputs": ["exec:exec"],
-      "desc": "Ends function execution (connect incoming exec)."
+      "desc": "Ends the function; add non-exec input pins for return values (they appear as outputs on Invoke Function nodes)."
     },
     {
       "name": "Flow.InvokeFunction",
@@ -70,7 +78,69 @@
       "defaults": {
         "functionId": ""
       },
-      "desc": "Call a user function from the event graph (set target in Inspector)."
+      "desc": "Call a user function (set target in Inspector, or drag the function from My Blueprint onto the canvas)."
+    },
+    {
+      "name": "Flow.DispatcherEntry",
+      "title": "Dispatcher Entry",
+      "category": "Flow",
+      "outputs": ["exec:exec"],
+      "desc": "Listener graph entry; add output pins for broadcast payload (same names become Broadcast inputs)."
+    },
+    {
+      "name": "Flow.BroadcastDispatcher",
+      "title": "Broadcast Dispatcher",
+      "category": "Flow",
+      "inputs": ["exec:exec"],
+      "outputs": ["exec:exec"],
+      "defaults": {
+        "dispatcherId": ""
+      },
+      "desc": "Broadcast a declared dispatcher from the main or a function graph (set target in Inspector)."
+    },
+    {
+      "name": "Flow.BindDispatcherListener",
+      "title": "Bind Dispatcher Listener",
+      "category": "Flow",
+      "inputs": ["exec:exec"],
+      "outputs": ["exec:exec"],
+      "defaults": {
+        "dispatcherId": "",
+        "functionId": ""
+      },
+      "desc": "At runtime, register a function as an extra listener for a dispatcher (after static listener graph)."
+    },
+    {
+      "name": "Flow.ClearDispatcherListeners",
+      "title": "Clear Dispatcher Listeners",
+      "category": "Flow",
+      "inputs": ["exec:exec"],
+      "outputs": ["exec:exec"],
+      "defaults": {
+        "dispatcherId": ""
+      },
+      "desc": "Clear dynamically bound listeners for a dispatcher (static dispatch_* graph is unchanged)."
+    },
+    {
+      "name": "Engine.GlobalEvent.Emit",
+      "title": "Emit Global Event",
+      "category": "Engine",
+      "inputs": ["exec:exec"],
+      "outputs": ["exec:exec"],
+      "defaults": {
+        "channelId": ""
+      },
+      "desc": "Emit a cross-blueprint event (channel + payload from globalEventChannels in blueprint.config.json)."
+    },
+    {
+      "name": "Engine.GlobalEvent.Listen",
+      "title": "On Global Event",
+      "category": "Engine",
+      "outputs": ["exec:exec"],
+      "defaults": {
+        "channelId": ""
+      },
+      "desc": "Main graph entry for a global channel; payload outputs match the channel manifest."
     }
   ]
 }

@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReactDOM from "react-dom/client";
 import {
   type BlueprintDocument,
+  type BlueprintDispatcher,
   type BlueprintEdge,
   type BlueprintGraphBody,
   type BlueprintNode,
@@ -18,13 +19,29 @@ import {
   mergeEventStartPinsForLifecycle,
   NODE_VALUE_LIFECYCLE_HOOK,
   parseBlueprintDocumentJson,
+  createNewDispatcherGraphBody,
+  findDispatcherEntryNode,
+  getDispatcherPayloadOutputsForDoc,
+  getGlobalEventPayloadPinsForChannel,
+  getInvokePinsForFunctionDoc,
+  mergeBroadcastDispatcherInputs,
+  mergeGlobalEventListenOutputs,
+  NODE_VALUE_DISPATCHER_ID,
+  NODE_VALUE_FUNCTION_ID,
+  NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID,
+  renameDispatcherIdInDocument,
+  stripBroadcastReferencesToDispatcher,
   stripInvokeReferencesToFunction,
+  TEMPLATE_BIND_DISPATCHER_LISTENER,
+  TEMPLATE_BROADCAST_DISPATCHER,
+  TEMPLATE_CLEAR_DISPATCHER_LISTENERS,
+  TEMPLATE_DISPATCHER_ENTRY,
   TEMPLATE_EVENT_START,
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
   TEMPLATE_INVOKE_FUNCTION,
 } from "../../src/blueprint/documentModel";
-import type { BaseClassDef } from "../../src/types";
+import type { BaseClassDef, GlobalEventChannelDef } from "../../src/types";
 import { validateConnectionHintKey } from "./graph-validation";
 import { computeNodeTreeState } from "./graph-tree-state";
 import { MyBlueprintPanel } from "./my-blueprint-panel";
@@ -80,6 +97,91 @@ const tr = (
 ): string => {
   return translateUiText(key, UI_LOCALE, params);
 };
+
+/** Maps used to resolve canvas subtitle + layout (card head height). */
+type NodeLayoutMaps = {
+  functionById: ReadonlyMap<string, BlueprintGraphBody>;
+  dispatcherById: ReadonlyMap<string, BlueprintDispatcher>;
+  globalEventEmitTemplate: string;
+  globalEventListenTemplate: string;
+};
+
+type CanvasTargetSubtitle = { text: string; title?: string };
+
+function computeCanvasTargetSubtitle(node: BlueprintNode, maps: NodeLayoutMaps): CanvasTargetSubtitle | null {
+  const emitName = maps.globalEventEmitTemplate.trim();
+  const listenName = maps.globalEventListenTemplate.trim();
+  const { functionById, dispatcherById } = maps;
+
+  if (node.template === TEMPLATE_INVOKE_FUNCTION) {
+    const fid = (node.values?.[NODE_VALUE_FUNCTION_ID] ?? "").trim();
+    if (!fid) {
+      return { text: tr("invokeNodeCanvasNoFunction"), title: undefined };
+    }
+    const f = functionById.get(fid);
+    const text = (f?.name?.trim() || f?.id || fid).trim() || fid;
+    return { text, title: fid };
+  }
+
+  if (node.template === TEMPLATE_BROADCAST_DISPATCHER) {
+    const did = (node.values?.[NODE_VALUE_DISPATCHER_ID] ?? "").trim();
+    if (!did) {
+      return { text: tr("broadcastDispatcherNodeCanvasNoDispatcher"), title: undefined };
+    }
+    const d = dispatcherById.get(did);
+    const text = (d?.name?.trim() || d?.id || did).trim() || did;
+    return { text, title: did };
+  }
+
+  if (node.template === TEMPLATE_BIND_DISPATCHER_LISTENER) {
+    const did = (node.values?.[NODE_VALUE_DISPATCHER_ID] ?? "").trim();
+    const fid = (node.values?.[NODE_VALUE_FUNCTION_ID] ?? "").trim();
+    const dRec = did ? dispatcherById.get(did) : undefined;
+    const fRec = fid ? functionById.get(fid) : undefined;
+    const dLabel = did ? (dRec?.name?.trim() || dRec?.id || did).trim() || did : "";
+    const fLabel = fid ? (fRec?.name?.trim() || fRec?.id || fid).trim() || fid : "";
+    if (!dLabel && !fLabel) {
+      return { text: tr("bindDispatcherNodeCanvasNoTarget"), title: undefined };
+    }
+    const text = dLabel && fLabel ? `${dLabel} → ${fLabel}` : dLabel || fLabel;
+    const titleParts: string[] = [];
+    if (did) {
+      titleParts.push(`dispatcher: ${did}`);
+    }
+    if (fid) {
+      titleParts.push(`function: ${fid}`);
+    }
+    return { text, title: titleParts.join(" · ") || undefined };
+  }
+
+  if (node.template === TEMPLATE_CLEAR_DISPATCHER_LISTENERS) {
+    const did = (node.values?.[NODE_VALUE_DISPATCHER_ID] ?? "").trim();
+    if (!did) {
+      return { text: tr("clearDispatcherNodeCanvasNoDispatcher"), title: undefined };
+    }
+    const d = dispatcherById.get(did);
+    const text = (d?.name?.trim() || d?.id || did).trim() || did;
+    return { text, title: did };
+  }
+
+  if (emitName && node.template === emitName) {
+    const cid = (node.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] ?? "").trim();
+    if (!cid) {
+      return { text: tr("globalEventNodeCanvasNoChannel"), title: undefined };
+    }
+    return { text: cid, title: cid };
+  }
+
+  if (listenName && node.template === listenName) {
+    const cid = (node.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] ?? "").trim();
+    if (!cid) {
+      return { text: tr("globalEventNodeCanvasNoChannel"), title: undefined };
+    }
+    return { text: cid, title: cid };
+  }
+
+  return null;
+}
 
 const createDefaultDocument = (): BlueprintDocument => createDefaultBlueprintDocument();
 const parseDocument = (content: string): BlueprintDocument => parseBlueprintDocumentJson(content);
@@ -163,10 +265,14 @@ type MarqueeState = {
 
 const nodeWidth = 220;
 const DRAG_DEBUG_KEY = "bp.dragDebug";
+/** `application/json` drag payload: `{ kind: "invoke-function", functionId: string }`. */
+const BP_DND_KIND_INVOKE_FUNCTION = "invoke-function";
 
-/** Match `.bp-node` border, `.ant-card-head { min-height: 34px }`, `.ant-card-body` padding, optional description, `.bp-pin-column` row spacing (see `style.scss`). */
+/** Match `.bp-node` border, `.ant-card-head { min-height: 34px }`, subtitle row, `.ant-card-body` padding, optional description, `.bp-pin-column` row spacing (see `style.scss`). */
 const NODE_BORDER_TOP_PX = 1;
-const CARD_HEAD_MIN_PX = 34;
+const CARD_HEAD_SINGLE_LINE_PX = 34;
+/** Extra head height when `computeCanvasTargetSubtitle` is non-null: `.bp-node-title-stack` gap (1) + `.bp-node-title-target` line (14). */
+const CARD_HEAD_SUBTITLE_EXTRA_PX = 15;
 const CARD_BODY_PAD_TOP_PX = 8;
 const NODE_CONTENT_GAP_PX = 8;
 const DESC_LINE_PX = Math.ceil(11 * 1.4);
@@ -175,9 +281,22 @@ const PIN_CENTER_STEP_PX = 24;
 /** Center of first pin row from the top of `.bp-node-pins` (~half of `.bp-pin` row height). */
 const FIRST_PIN_CENTER_FROM_PINS_TOP_PX = 8;
 
+const getCardHeadHeightForLayout = (node: BlueprintNode, layoutMaps?: NodeLayoutMaps): number => {
+  if (!layoutMaps) {
+    return CARD_HEAD_SINGLE_LINE_PX;
+  }
+  return computeCanvasTargetSubtitle(node, layoutMaps)
+    ? CARD_HEAD_SINGLE_LINE_PX + CARD_HEAD_SUBTITLE_EXTRA_PX
+    : CARD_HEAD_SINGLE_LINE_PX;
+};
+
 /** Y offset from node top (unscaled, same space as `node.y`) to the vertical center of pin at `pinIndex` in its column. */
-const getPinCenterYOffsetFromNodeTop = (node: BlueprintNode, pinIndex: number): number => {
-  let o = NODE_BORDER_TOP_PX + CARD_HEAD_MIN_PX + CARD_BODY_PAD_TOP_PX;
+const getPinCenterYOffsetFromNodeTop = (
+  node: BlueprintNode,
+  pinIndex: number,
+  layoutMaps?: NodeLayoutMaps
+): number => {
+  let o = NODE_BORDER_TOP_PX + getCardHeadHeightForLayout(node, layoutMaps) + CARD_BODY_PAD_TOP_PX;
   if (node.description?.trim()) {
     o += DESC_LINE_PX + NODE_CONTENT_GAP_PX;
   }
@@ -185,11 +304,11 @@ const getPinCenterYOffsetFromNodeTop = (node: BlueprintNode, pinIndex: number): 
   return o;
 };
 
-const getNodeHeight = (node: BlueprintNode) => {
+const getNodeHeight = (node: BlueprintNode, layoutMaps?: NodeLayoutMaps) => {
   const n = Math.max(node.inputs.length, node.outputs.length);
   let h =
     NODE_BORDER_TOP_PX +
-    CARD_HEAD_MIN_PX +
+    getCardHeadHeightForLayout(node, layoutMaps) +
     CARD_BODY_PAD_TOP_PX +
     (node.description?.trim() ? DESC_LINE_PX + NODE_CONTENT_GAP_PX : 0);
   if (n > 0) {
@@ -422,10 +541,16 @@ const EditorApp = () => {
   const [selectedVariableIndex, setSelectedVariableIndex] = useState<number | null>(null);
   const [graphExplorerActive, setGraphExplorerActive] = useState(true);
   const [baseClasses, setBaseClasses] = useState<BaseClassDef[]>([]);
+  const [globalEventChannels, setGlobalEventChannels] = useState<GlobalEventChannelDef[]>([]);
+  const [globalEventEmitTemplate, setGlobalEventEmitTemplate] = useState("");
+  const [globalEventListenTemplate, setGlobalEventListenTemplate] = useState("");
   const [selectedLifecycleEvent, setSelectedLifecycleEvent] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget>({ kind: "main" });
   const [functionRenameModal, setFunctionRenameModal] = useState<{ id: string } | null>(null);
   const [functionRenameDraft, setFunctionRenameDraft] = useState("");
+  const [dispatcherRenameModal, setDispatcherRenameModal] = useState<{ id: string } | null>(null);
+  const [dispatcherRenameDraft, setDispatcherRenameDraft] = useState("");
+  const [dispatcherRenameIdDraft, setDispatcherRenameIdDraft] = useState("");
   const [inheritsSelectOpen, setInheritsSelectOpen] = useState(false);
 
   const activeGraph = useMemo(() => getGraphBody(doc, editTarget), [doc, editTarget]);
@@ -433,13 +558,46 @@ const EditorApp = () => {
     () => doc.functions.map((f) => ({ id: f.id, name: f.name })),
     [doc.functions]
   );
+  const functionById = useMemo(
+    () => new Map(doc.functions.map((f) => [f.id, f] as const)),
+    [doc.functions]
+  );
+  const dispatcherById = useMemo(
+    () => new Map(doc.dispatchers.map((d) => [d.id, d] as const)),
+    [doc.dispatchers]
+  );
+  const dispatcherGraphList = useMemo(
+    () => doc.dispatchers.map((d) => ({ id: d.id, name: d.name })),
+    [doc.dispatchers]
+  );
+
+  const nodeLayoutMaps = useMemo<NodeLayoutMaps>(
+    () => ({
+      functionById,
+      dispatcherById,
+      globalEventEmitTemplate,
+      globalEventListenTemplate,
+    }),
+    [functionById, dispatcherById, globalEventEmitTemplate, globalEventListenTemplate]
+  );
+
+  /** Second line under node title: selected function, dispatcher, global channel, etc. */
+  const getNodeCanvasTargetSubtitle = useCallback(
+    (node: BlueprintNode) => computeCanvasTargetSubtitle(node, nodeLayoutMaps),
+    [nodeLayoutMaps]
+  );
+
   const editingContextLabel = useMemo(() => {
     if (editTarget.kind === "main") {
       return tr("canvasEditingMainGraph");
     }
-    const f = doc.functions.find((x) => x.id === editTarget.id);
-    return f?.name ?? editTarget.id;
-  }, [editTarget, doc.functions]);
+    if (editTarget.kind === "function") {
+      const f = doc.functions.find((x) => x.id === editTarget.id);
+      return f?.name ?? editTarget.id;
+    }
+    const d = doc.dispatchers.find((x) => x.id === editTarget.id);
+    return d?.name ?? editTarget.id;
+  }, [editTarget, doc.functions, doc.dispatchers]);
   const configLifecycleHooks = useMemo((): readonly string[] => {
     const name = doc.inherits?.trim();
     if (!name) {
@@ -566,15 +724,167 @@ const EditorApp = () => {
     });
   }, [baseClasses, nodeDefs, doc.inherits, doc.graph]);
 
+  /** Sync BroadcastDispatcher input pins from selected dispatcher's DispatcherEntry payload outputs. */
   useEffect(() => {
-    if (editTarget.kind === "function") {
+    const template = nodeDefs.find((d) => d.name === TEMPLATE_BROADCAST_DISPATCHER);
+    const tmplIn = template?.inputs ?? [{ name: "exec", type: "exec" }];
+    skipPushHistoryRef.current = true;
+    setDoc((prev) => {
+      const syncGraph = (g: BlueprintGraphBody): { next: BlueprintGraphBody; changed: boolean } => {
+        let changed = false;
+        const nodes = g.nodes.map((n) => {
+          if (n.template !== TEMPLATE_BROADCAST_DISPATCHER) {
+            return n;
+          }
+          const did = (n.values?.[NODE_VALUE_DISPATCHER_ID] ?? "").trim();
+          const payload = did ? getDispatcherPayloadOutputsForDoc(prev, did) : [];
+          const inputs = mergeBroadcastDispatcherInputs(tmplIn, payload);
+          if (blueprintPinsEqual(n.inputs, inputs)) {
+            return n;
+          }
+          changed = true;
+          return { ...n, inputs };
+        });
+        return changed ? { next: { ...g, nodes }, changed: true } : { next: g, changed: false };
+      };
+      const mainRes = syncGraph(prev.graph);
+      let any = mainRes.changed;
+      const nextFns = prev.functions.map((f) => {
+        const r = syncGraph(f);
+        if (r.changed) {
+          any = true;
+        }
+        return r.next;
+      });
+      if (!any) {
+        return prev;
+      }
+      return { ...prev, graph: mainRes.next, functions: nextFns };
+    });
+  }, [nodeDefs, doc.graph, doc.functions, doc.dispatchers]);
+
+  /** Sync `Flow.InvokeFunction` data pins from each target function's Entry outputs / Return inputs. */
+  useEffect(() => {
+    const template = nodeDefs.find((d) => d.name === TEMPLATE_INVOKE_FUNCTION);
+    if (!template) {
+      return;
+    }
+    const tmplIn = template.inputs ?? [{ name: "exec", type: "exec" }];
+    const tmplOut = template.outputs ?? [{ name: "exec", type: "exec" }];
+    skipPushHistoryRef.current = true;
+    setDoc((prev) => {
+      const syncGraph = (g: BlueprintGraphBody): { next: BlueprintGraphBody; changed: boolean } => {
+        let changed = false;
+        const nodes = g.nodes.map((n) => {
+          if (n.template !== TEMPLATE_INVOKE_FUNCTION) {
+            return n;
+          }
+          const fid = (n.values?.[NODE_VALUE_FUNCTION_ID] ?? "").trim();
+          const { inputs: pinIn, outputs: pinOut } = getInvokePinsForFunctionDoc(prev, fid);
+          const inputs = mergeBroadcastDispatcherInputs(tmplIn, pinIn);
+          const outputs = mergeBroadcastDispatcherInputs(tmplOut, pinOut);
+          if (blueprintPinsEqual(n.inputs, inputs) && blueprintPinsEqual(n.outputs, outputs)) {
+            return n;
+          }
+          changed = true;
+          return { ...n, inputs, outputs };
+        });
+        return changed ? { next: { ...g, nodes }, changed: true } : { next: g, changed: false };
+      };
+      const mainRes = syncGraph(prev.graph);
+      let any = mainRes.changed;
+      const nextFns = prev.functions.map((f) => {
+        const r = syncGraph(f);
+        if (r.changed) {
+          any = true;
+        }
+        return r.next;
+      });
+      const nextDisp = prev.dispatchers.map((d) => {
+        const r = syncGraph(d.graph);
+        if (r.changed) {
+          any = true;
+        }
+        return { ...d, graph: r.next };
+      });
+      if (!any) {
+        return prev;
+      }
+      return { ...prev, graph: mainRes.next, functions: nextFns, dispatchers: nextDisp };
+    });
+  }, [nodeDefs, doc.graph, doc.functions, doc.dispatchers]);
+
+  /** Sync global event Emit/Listen pins from blueprint.config.json `globalEventChannels`. */
+  useEffect(() => {
+    const emitName = globalEventEmitTemplate.trim();
+    const listenName = globalEventListenTemplate.trim();
+    if (!emitName && !listenName) {
+      return;
+    }
+    const emitDef = nodeDefs.find((d) => d.name === emitName);
+    const listenDef = nodeDefs.find((d) => d.name === listenName);
+    skipPushHistoryRef.current = true;
+    setDoc((prev) => {
+      const syncGraph = (g: BlueprintGraphBody, includeListen: boolean): { next: BlueprintGraphBody; changed: boolean } => {
+        let changed = false;
+        const nodes = g.nodes.map((n) => {
+          let nextNode = n;
+          if (emitName && nextNode.template === emitName) {
+            const cid = (nextNode.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] ?? "").trim();
+            const payload = cid ? getGlobalEventPayloadPinsForChannel(globalEventChannels, cid) : [];
+            const tmplIn = emitDef?.inputs ?? [{ name: "exec", type: "exec" }];
+            const inputs = mergeBroadcastDispatcherInputs(tmplIn, payload);
+            if (!blueprintPinsEqual(nextNode.inputs, inputs)) {
+              changed = true;
+              nextNode = { ...nextNode, inputs };
+            }
+          }
+          if (includeListen && listenName && nextNode.template === listenName) {
+            const cid = (nextNode.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] ?? "").trim();
+            const payload = cid ? getGlobalEventPayloadPinsForChannel(globalEventChannels, cid) : [];
+            const tmplOut = listenDef?.outputs ?? [{ name: "exec", type: "exec" }];
+            const outputs = mergeGlobalEventListenOutputs(tmplOut, payload);
+            if (!blueprintPinsEqual(nextNode.outputs, outputs)) {
+              changed = true;
+              nextNode = { ...nextNode, outputs };
+            }
+          }
+          return nextNode;
+        });
+        return changed ? { next: { ...g, nodes }, changed: true } : { next: g, changed: false };
+      };
+      const mainRes = syncGraph(prev.graph, true);
+      let any = mainRes.changed;
+      const nextFns = prev.functions.map((f) => {
+        const r = syncGraph(f, false);
+        if (r.changed) {
+          any = true;
+        }
+        return r.next;
+      });
+      if (!any) {
+        return prev;
+      }
+      return { ...prev, graph: mainRes.next, functions: nextFns };
+    });
+  }, [
+    nodeDefs,
+    globalEventChannels,
+    globalEventEmitTemplate,
+    globalEventListenTemplate,
+    doc.graph,
+    doc.functions,
+  ]);
+
+  useEffect(() => {
+    if (editTarget.kind === "function" || editTarget.kind === "dispatcher") {
       setInheritsSelectOpen(false);
     }
   }, [editTarget.kind]);
 
   const handleInheritsDropdownVisibleChange = useCallback(
     (nextOpen: boolean) => {
-      if (editTarget.kind === "function") {
+      if (editTarget.kind === "function" || editTarget.kind === "dispatcher") {
         return;
       }
       if (!nextOpen) {
@@ -599,6 +909,8 @@ const EditorApp = () => {
     },
     [doc.inherits, editTarget.kind]
   );
+
+  const subgraphOpen = editTarget.kind === "function" || editTarget.kind === "dispatcher";
 
   const handleInheritsSelectChange = useCallback(
     (v: unknown) => {
@@ -661,6 +973,12 @@ const EditorApp = () => {
     }
   }, [doc.functions, editTarget.kind, editTarget.id]);
 
+  useEffect(() => {
+    if (editTarget.kind === "dispatcher" && !doc.dispatchers.some((d) => d.id === editTarget.id)) {
+      setEditTarget({ kind: "main" });
+    }
+  }, [doc.dispatchers, editTarget.kind, editTarget.id]);
+
   /**
    * Screen-space pin anchors from layout + viewport. Used for edge SVG paths so curves stay in sync
    * while panning/zooming (DOM getBoundingClientRect during render lags one frame behind viewport).
@@ -672,7 +990,7 @@ const EditorApp = () => {
   ): { x: number; y: number } => {
     const pins = direction === "input" ? node.inputs : node.outputs;
     const idx = Math.max(0, pins.findIndex((p) => p.name === pinName));
-    const yWorld = node.y + getPinCenterYOffsetFromNodeTop(node, idx);
+    const yWorld = node.y + getPinCenterYOffsetFromNodeTop(node, idx, nodeLayoutMaps);
     const s = viewport.scale;
     const ox = viewport.x;
     const oy = viewport.y;
@@ -704,6 +1022,13 @@ const EditorApp = () => {
     () => activeGraph.nodes.find((n) => n.id === selectedNodeId) ?? null,
     [activeGraph.nodes, selectedNodeId]
   );
+
+  const isDispatcherEntrySignatureEdit =
+    editTarget.kind === "dispatcher" && selectedNode?.template === TEMPLATE_DISPATCHER_ENTRY;
+  const isFunctionEntrySignatureEdit =
+    editTarget.kind === "function" && selectedNode?.template === TEMPLATE_FUNCTION_ENTRY;
+  const isFunctionReturnSignatureEdit =
+    editTarget.kind === "function" && selectedNode?.template === TEMPLATE_FUNCTION_RETURN;
 
   const serialized = useMemo(() => JSON.stringify(doc, null, 2), [doc]);
   const syncHistoryState = () =>
@@ -862,6 +1187,128 @@ const EditorApp = () => {
     [doc.functions]
   );
 
+  const onExplorerSelectDispatcherId = useCallback((dispatcherId: string) => {
+    setEditTarget({ kind: "dispatcher", id: dispatcherId });
+    setGraphExplorerActive(true);
+    setSelectedVariableIndex(null);
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+  }, []);
+
+  const onExplorerAddDispatcher = useCallback(() => {
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+    setGraphExplorerActive(true);
+    setSelectedVariableIndex(null);
+    let createdId = "";
+    setDoc((prev) => {
+      let id = `disp_${Math.random().toString(36).slice(2, 9)}`;
+      let tries = 0;
+      while (
+        (prev.functions.some((f) => f.id === id) || prev.dispatchers.some((d) => d.id === id)) &&
+        tries < 8
+      ) {
+        id = `disp_${Math.random().toString(36).slice(2, 9)}`;
+        tries += 1;
+      }
+      let name = "NewDispatcher";
+      let n = 0;
+      while (prev.dispatchers.some((d) => d.name === name)) {
+        n += 1;
+        name = `NewDispatcher_${n}`;
+      }
+      createdId = id;
+      const graph = createNewDispatcherGraphBody(id, name);
+      return {
+        ...prev,
+        dispatchers: [...prev.dispatchers, { id, name, graph }],
+      };
+    });
+    setEditTarget({ kind: "dispatcher", id: createdId });
+  }, []);
+
+  const onExplorerRenameDispatcher = useCallback(
+    (dispatcherId: string) => {
+      const d = doc.dispatchers.find((x) => x.id === dispatcherId);
+      setDispatcherRenameDraft(d?.name ?? "");
+      setDispatcherRenameIdDraft(d?.id ?? dispatcherId);
+      setDispatcherRenameModal({ id: dispatcherId });
+    },
+    [doc.dispatchers]
+  );
+
+  const applyDispatcherRename = useCallback(() => {
+    if (!dispatcherRenameModal) {
+      return;
+    }
+    const name = dispatcherRenameDraft.trim() || "Unnamed";
+    const newIdRaw = dispatcherRenameIdDraft.trim();
+    const oldId = dispatcherRenameModal.id;
+    setDoc((prev) => {
+      if (!newIdRaw || newIdRaw === oldId) {
+        queueMicrotask(() => {
+          setDispatcherRenameModal(null);
+        });
+        return {
+          ...prev,
+          dispatchers: prev.dispatchers.map((d) =>
+            d.id === oldId ? { ...d, name, graph: { ...d.graph, name } } : d
+          ),
+        };
+      }
+      const renamed = renameDispatcherIdInDocument(prev, oldId, newIdRaw);
+      if (!renamed) {
+        queueMicrotask(() => {
+          void Modal.error({
+            title: tr("dispatcherRenameIdConflictTitle"),
+            content: tr("dispatcherRenameIdConflictBody"),
+          });
+        });
+        return prev;
+      }
+      queueMicrotask(() => {
+        setDispatcherRenameModal(null);
+        setEditTarget((cur) =>
+          cur.kind === "dispatcher" && cur.id === oldId ? { kind: "dispatcher", id: newIdRaw } : cur
+        );
+      });
+      return {
+        ...renamed,
+        dispatchers: renamed.dispatchers.map((d) =>
+          d.id === newIdRaw ? { ...d, name, graph: { ...d.graph, name } } : d
+        ),
+      };
+    });
+  }, [dispatcherRenameDraft, dispatcherRenameIdDraft, dispatcherRenameModal, tr]);
+
+  const onExplorerDeleteDispatcher = useCallback(
+    (dispatcherId: string) => {
+      const d = doc.dispatchers.find((x) => x.id === dispatcherId);
+      Modal.confirm({
+        title: tr("dispatcherDeleteConfirmTitle"),
+        content: tr("dispatcherDeleteConfirmContent", { name: d?.name ?? dispatcherId }),
+        okType: "danger",
+        okText: tr("dispatcherDeleteOk"),
+        cancelText: tr("functionCancel"),
+        onOk: () => {
+          setDoc((prev) => {
+            const stripped = stripBroadcastReferencesToDispatcher(prev, dispatcherId);
+            return {
+              ...stripped,
+              dispatchers: stripped.dispatchers.filter((x) => x.id !== dispatcherId),
+            };
+          });
+          setEditTarget((cur) =>
+            cur.kind === "dispatcher" && cur.id === dispatcherId ? { kind: "main" } : cur
+          );
+        },
+      });
+    },
+    [doc.dispatchers]
+  );
+
   const onExplorerSelectVariable = useCallback((index: number) => {
     setSelectedNodeId(null);
     setSelectedNodeIds([]);
@@ -918,16 +1365,28 @@ const EditorApp = () => {
     });
     setGraphExplorerActive(true);
   }, []);
-  const nodeTreeState = useMemo(
-    () =>
-      computeNodeTreeState(
-        activeGraph.nodes,
-        activeGraph.edges,
-        editTarget.kind === "main" ? "main" : "function",
-        configLifecycleHooks
-      ),
-    [activeGraph.nodes, activeGraph.edges, editTarget.kind, configLifecycleHooks]
-  );
+  const graphTreeGlobalEvent = useMemo(() => {
+    const t = globalEventListenTemplate.trim();
+    if (!t) {
+      return null;
+    }
+    return {
+      listenTemplate: t,
+      allowedChannelIds: globalEventChannels.map((c) => c.id),
+    };
+  }, [globalEventListenTemplate, globalEventChannels]);
+
+  const nodeTreeState = useMemo(() => {
+    const mode =
+      editTarget.kind === "main" ? "main" : editTarget.kind === "function" ? "function" : "dispatcher";
+    return computeNodeTreeState(
+      activeGraph.nodes,
+      activeGraph.edges,
+      mode,
+      configLifecycleHooks,
+      graphTreeGlobalEvent
+    );
+  }, [activeGraph.nodes, activeGraph.edges, editTarget.kind, configLifecycleHooks, graphTreeGlobalEvent]);
   const clientToWorld = (clientX: number, clientY: number) => {
     if (!canvasRef.current) {
       return { x: 0, y: 0 };
@@ -948,13 +1407,42 @@ const EditorApp = () => {
   const templateOptions = useMemo(() => {
     const groups = new Map<string, Array<{ label: string; value: string }>>();
     const onMainGraph = editTarget.kind === "main";
+    const onFunctionGraph = editTarget.kind === "function";
+    const onDispatcherGraph = editTarget.kind === "dispatcher";
     for (const def of nodeDefs) {
       if (def.name === TEMPLATE_FUNCTION_ENTRY || def.name === TEMPLATE_FUNCTION_RETURN) {
-        if (onMainGraph) {
+        if (!onFunctionGraph) {
           continue;
         }
       }
       if (def.name === TEMPLATE_INVOKE_FUNCTION) {
+        if (!onMainGraph && !onFunctionGraph) {
+          continue;
+        }
+      }
+      if (def.name === TEMPLATE_DISPATCHER_ENTRY) {
+        if (!onDispatcherGraph) {
+          continue;
+        }
+      }
+      if (def.name === TEMPLATE_BROADCAST_DISPATCHER) {
+        if (!onMainGraph && !onFunctionGraph) {
+          continue;
+        }
+      }
+      if (def.name === TEMPLATE_BIND_DISPATCHER_LISTENER || def.name === TEMPLATE_CLEAR_DISPATCHER_LISTENERS) {
+        if (!onMainGraph && !onFunctionGraph) {
+          continue;
+        }
+      }
+      const emitTpl = globalEventEmitTemplate.trim();
+      const listenTpl = globalEventListenTemplate.trim();
+      if (emitTpl && def.name === emitTpl) {
+        if (!onMainGraph && !onFunctionGraph) {
+          continue;
+        }
+      }
+      if (listenTpl && def.name === listenTpl) {
         if (!onMainGraph) {
           continue;
         }
@@ -972,7 +1460,7 @@ const EditorApp = () => {
         label,
         options: options.sort((a, b) => a.label.localeCompare(b.label)),
       }));
-  }, [nodeDefs, editTarget.kind]);
+  }, [nodeDefs, editTarget.kind, globalEventEmitTemplate, globalEventListenTemplate]);
 
   const filteredTemplateMenuGroups = useMemo(() => {
     const q = addNodeTemplateQuery.trim().toLowerCase();
@@ -1057,6 +1545,9 @@ const EditorApp = () => {
         const defs = (msg.nodeDefs ?? []).map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
         setNodeDefs(defs);
         setBaseClasses(msg.baseClasses ?? []);
+        setGlobalEventChannels(msg.globalEventChannels ?? []);
+        setGlobalEventEmitTemplate(msg.globalEventEmitTemplate ?? "");
+        setGlobalEventListenTemplate(msg.globalEventListenTemplate ?? "");
         setReady(true);
       } else if (msg.type === "fileChanged") {
         const parsed = parseDocument(msg.content);
@@ -1083,6 +1574,9 @@ const EditorApp = () => {
         const defs = (msg.nodeDefs ?? []).map(normalizeNodeDef).filter((v): v is NodeDef => !!v);
         setNodeDefs(defs);
         setBaseClasses(msg.baseClasses ?? []);
+        setGlobalEventChannels(msg.globalEventChannels ?? []);
+        setGlobalEventEmitTemplate(msg.globalEventEmitTemplate ?? "");
+        setGlobalEventListenTemplate(msg.globalEventListenTemplate ?? "");
       }
     });
     vscodeApi.postMessage({ type: "ready" });
@@ -1271,7 +1765,7 @@ const EditorApp = () => {
           const left = node.x * viewport.scale + viewport.x;
           const top = node.y * viewport.scale + viewport.y;
           const width = nodeWidth * viewport.scale;
-          const height = getNodeHeight(node) * viewport.scale;
+          const height = getNodeHeight(node, nodeLayoutMaps) * viewport.scale;
           return left <= maxX && left + width >= minX && top <= maxY && top + height >= minY;
         })
         .map((n) => n.id);
@@ -1285,7 +1779,7 @@ const EditorApp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [marquee, activeGraph.nodes, viewport.scale, viewport.x, viewport.y]);
+  }, [marquee, activeGraph.nodes, viewport.scale, viewport.x, viewport.y, nodeLayoutMaps]);
 
   useEffect(() => {
     if (!pan) {
@@ -1388,6 +1882,51 @@ const EditorApp = () => {
     setSelectedNodeIds([id]);
     dismissContextMenus();
   };
+
+  const addInvokeFunctionNodeAtWorld = useCallback(
+    (functionId: string, worldPos: { x: number; y: number }) => {
+      const template = nodeDefs.find((d) => d.name === TEMPLATE_INVOKE_FUNCTION);
+      if (!template) {
+        return;
+      }
+      const fid = functionId.trim();
+      if (!fid) {
+        return;
+      }
+      const id = `node_${Math.random().toString(36).slice(2, 8)}`;
+      setDoc((prev) => {
+        const tmplIn = template.inputs ?? [{ name: "exec", type: "exec" }];
+        const tmplOut = template.outputs ?? [{ name: "exec", type: "exec" }];
+        const { inputs: pinIn, outputs: pinOut } = getInvokePinsForFunctionDoc(prev, fid);
+        const inputs = mergeBroadcastDispatcherInputs(tmplIn, pinIn);
+        const outputs = mergeBroadcastDispatcherInputs(tmplOut, pinOut);
+        const baseValues = template.defaults
+          ? Object.fromEntries(Object.entries(template.defaults).map(([k, v]) => [k, String(v)]))
+          : {};
+        return mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+          ...g,
+          nodes: [
+            ...g.nodes,
+            {
+              id,
+              title: template.title || template.name || "Invoke Function",
+              template: template.name,
+              description: template.desc ?? "",
+              x: Math.max(16, worldPos.x),
+              y: Math.max(16, worldPos.y),
+              inputs,
+              outputs,
+              values: { ...baseValues, [NODE_VALUE_FUNCTION_ID]: fid },
+            },
+          ],
+        }));
+      });
+      setSelectedNodeId(id);
+      setSelectedNodeIds([id]);
+      dismissContextMenus();
+    },
+    [nodeDefs]
+  );
 
   const onDeleteNode = () => {
     const targets = selectedNodeIds.length > 0 ? selectedNodeIds : selectedNodeId ? [selectedNodeId] : [];
@@ -1526,6 +2065,362 @@ const EditorApp = () => {
   const toggleInspectorPins = (key: "inputs" | "outputs") => {
     setCollapsedInspectorPins((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  const addDispatcherEntryPayloadOutput = useCallback(() => {
+    const nodeId = selectedNodeId;
+    if (!nodeId || editTargetRef.current.kind !== "dispatcher") {
+      return;
+    }
+    skipPushHistoryRef.current = true;
+    const suf = Math.random().toString(36).slice(2, 6);
+    const newName = `payload_${suf}`;
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        nodes: g.nodes.map((n) => {
+          if (n.id !== nodeId) {
+            return n;
+          }
+          const outputs = [...(n.outputs ?? [])];
+          outputs.push({ name: newName, type: "number" });
+          return { ...n, outputs };
+        }),
+      }))
+    );
+  }, [selectedNodeId]);
+
+  const removeDispatcherEntryPayloadOutput = useCallback(
+    (pinName: string) => {
+      const nodeId = selectedNodeId;
+      if (!nodeId || editTargetRef.current.kind !== "dispatcher") {
+        return;
+      }
+      skipPushHistoryRef.current = true;
+      setDoc((prev) =>
+        mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+          ...g,
+          edges: g.edges.filter(
+            (e) =>
+              !(
+                (e.fromNodeId === nodeId && e.fromPin === pinName) ||
+                (e.toNodeId === nodeId && e.toPin === pinName)
+              )
+          ),
+          nodes: g.nodes.map((n) => {
+            if (n.id !== nodeId) {
+              return n;
+            }
+            return {
+              ...n,
+              outputs: (n.outputs ?? []).filter((p) => !(p.name === pinName && p.type !== "exec")),
+            };
+          }),
+        }))
+      );
+    },
+    [selectedNodeId]
+  );
+
+  const setDispatcherEntryPayloadPinField = useCallback(
+    (fromPinName: string, field: "name" | "type", raw: string) => {
+      const nodeId = selectedNodeId;
+      if (!nodeId || editTargetRef.current.kind !== "dispatcher") {
+        return;
+      }
+      const trimmed = raw.trim();
+      if (field === "name" && (!trimmed || trimmed === fromPinName)) {
+        return;
+      }
+      if (field === "type" && !trimmed) {
+        return;
+      }
+      skipPushHistoryRef.current = true;
+      setDoc((prev) =>
+        mapDocAtTarget(prev, editTargetRef.current, (g) => {
+          const n = g.nodes.find((x) => x.id === nodeId);
+          if (!n) {
+            return g;
+          }
+          const nextName = field === "name" ? trimmed : fromPinName;
+          if (field === "name") {
+            const clash = (n.outputs ?? []).some((p) => p.name === nextName && p.name !== fromPinName);
+            if (clash) {
+              return g;
+            }
+          }
+          let nextEdges = g.edges;
+          if (field === "name") {
+            nextEdges = g.edges.map((e) => {
+              if (e.fromNodeId === nodeId && e.fromPin === fromPinName) {
+                return { ...e, fromPin: nextName };
+              }
+              if (e.toNodeId === nodeId && e.toPin === fromPinName) {
+                return { ...e, toPin: nextName };
+              }
+              return e;
+            });
+          }
+          return {
+            ...g,
+            edges: nextEdges,
+            nodes: g.nodes.map((node) => {
+              if (node.id !== nodeId) {
+                return node;
+              }
+              return {
+                ...node,
+                outputs: (node.outputs ?? []).map((p) => {
+                  if (p.type === "exec" || p.name !== fromPinName) {
+                    return p;
+                  }
+                  return field === "name" ? { ...p, name: nextName } : { ...p, type: trimmed };
+                }),
+              };
+            }),
+          };
+        })
+      );
+    },
+    [selectedNodeId]
+  );
+
+  const addFunctionEntryPayloadOutput = useCallback(() => {
+    const nodeId = selectedNodeId;
+    if (!nodeId || editTargetRef.current.kind !== "function") {
+      return;
+    }
+    skipPushHistoryRef.current = true;
+    const suf = Math.random().toString(36).slice(2, 6);
+    const newName = `param_${suf}`;
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        nodes: g.nodes.map((n) => {
+          if (n.id !== nodeId || n.template !== TEMPLATE_FUNCTION_ENTRY) {
+            return n;
+          }
+          const outputs = [...(n.outputs ?? [])];
+          outputs.push({ name: newName, type: "number" });
+          return { ...n, outputs };
+        }),
+      }))
+    );
+  }, [selectedNodeId]);
+
+  const removeFunctionEntryPayloadOutput = useCallback(
+    (pinName: string) => {
+      const nodeId = selectedNodeId;
+      if (!nodeId || editTargetRef.current.kind !== "function") {
+        return;
+      }
+      skipPushHistoryRef.current = true;
+      setDoc((prev) =>
+        mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+          ...g,
+          edges: g.edges.filter(
+            (e) =>
+              !(
+                (e.fromNodeId === nodeId && e.fromPin === pinName) ||
+                (e.toNodeId === nodeId && e.toPin === pinName)
+              )
+          ),
+          nodes: g.nodes.map((n) => {
+            if (n.id !== nodeId) {
+              return n;
+            }
+            return {
+              ...n,
+              outputs: (n.outputs ?? []).filter((p) => !(p.name === pinName && p.type !== "exec")),
+            };
+          }),
+        }))
+      );
+    },
+    [selectedNodeId]
+  );
+
+  const setFunctionEntryPayloadPinField = useCallback(
+    (fromPinName: string, field: "name" | "type", raw: string) => {
+      const nodeId = selectedNodeId;
+      if (!nodeId || editTargetRef.current.kind !== "function") {
+        return;
+      }
+      const trimmed = raw.trim();
+      if (field === "name" && (!trimmed || trimmed === fromPinName)) {
+        return;
+      }
+      if (field === "type" && !trimmed) {
+        return;
+      }
+      skipPushHistoryRef.current = true;
+      setDoc((prev) =>
+        mapDocAtTarget(prev, editTargetRef.current, (g) => {
+          const n = g.nodes.find((x) => x.id === nodeId);
+          if (!n) {
+            return g;
+          }
+          const nextName = field === "name" ? trimmed : fromPinName;
+          if (field === "name") {
+            const clash = (n.outputs ?? []).some((p) => p.name === nextName && p.name !== fromPinName);
+            if (clash) {
+              return g;
+            }
+          }
+          let nextEdges = g.edges;
+          if (field === "name") {
+            nextEdges = g.edges.map((e) => {
+              if (e.fromNodeId === nodeId && e.fromPin === fromPinName) {
+                return { ...e, fromPin: nextName };
+              }
+              if (e.toNodeId === nodeId && e.toPin === fromPinName) {
+                return { ...e, toPin: nextName };
+              }
+              return e;
+            });
+          }
+          return {
+            ...g,
+            edges: nextEdges,
+            nodes: g.nodes.map((node) => {
+              if (node.id !== nodeId) {
+                return node;
+              }
+              return {
+                ...node,
+                outputs: (node.outputs ?? []).map((p) => {
+                  if (p.type === "exec" || p.name !== fromPinName) {
+                    return p;
+                  }
+                  return field === "name" ? { ...p, name: nextName } : { ...p, type: trimmed };
+                }),
+              };
+            }),
+          };
+        })
+      );
+    },
+    [selectedNodeId]
+  );
+
+  const addFunctionReturnPayloadInput = useCallback(() => {
+    const nodeId = selectedNodeId;
+    if (!nodeId || editTargetRef.current.kind !== "function") {
+      return;
+    }
+    skipPushHistoryRef.current = true;
+    const suf = Math.random().toString(36).slice(2, 6);
+    const newName = `ret_${suf}`;
+    setDoc((prev) =>
+      mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+        ...g,
+        nodes: g.nodes.map((n) => {
+          if (n.id !== nodeId || n.template !== TEMPLATE_FUNCTION_RETURN) {
+            return n;
+          }
+          const inputs = [...(n.inputs ?? [])];
+          const execIdx = inputs.findIndex((p) => p.type === "exec");
+          const insertAt = execIdx >= 0 ? execIdx + 1 : inputs.length;
+          inputs.splice(insertAt, 0, { name: newName, type: "number" });
+          return { ...n, inputs };
+        }),
+      }))
+    );
+  }, [selectedNodeId]);
+
+  const removeFunctionReturnPayloadInput = useCallback(
+    (pinName: string) => {
+      const nodeId = selectedNodeId;
+      if (!nodeId || editTargetRef.current.kind !== "function") {
+        return;
+      }
+      skipPushHistoryRef.current = true;
+      setDoc((prev) =>
+        mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+          ...g,
+          edges: g.edges.filter(
+            (e) =>
+              !(
+                (e.fromNodeId === nodeId && e.fromPin === pinName) ||
+                (e.toNodeId === nodeId && e.toPin === pinName)
+              )
+          ),
+          nodes: g.nodes.map((n) => {
+            if (n.id !== nodeId) {
+              return n;
+            }
+            return {
+              ...n,
+              inputs: (n.inputs ?? []).filter((p) => !(p.name === pinName && p.type !== "exec")),
+            };
+          }),
+        }))
+      );
+    },
+    [selectedNodeId]
+  );
+
+  const setFunctionReturnPayloadInputField = useCallback(
+    (fromPinName: string, field: "name" | "type", raw: string) => {
+      const nodeId = selectedNodeId;
+      if (!nodeId || editTargetRef.current.kind !== "function") {
+        return;
+      }
+      const trimmed = raw.trim();
+      if (field === "name" && (!trimmed || trimmed === fromPinName)) {
+        return;
+      }
+      if (field === "type" && !trimmed) {
+        return;
+      }
+      skipPushHistoryRef.current = true;
+      setDoc((prev) =>
+        mapDocAtTarget(prev, editTargetRef.current, (g) => {
+          const n = g.nodes.find((x) => x.id === nodeId);
+          if (!n) {
+            return g;
+          }
+          const nextName = field === "name" ? trimmed : fromPinName;
+          if (field === "name") {
+            const clash = (n.inputs ?? []).some((p) => p.name === nextName && p.name !== fromPinName);
+            if (clash) {
+              return g;
+            }
+          }
+          let nextEdges = g.edges;
+          if (field === "name") {
+            nextEdges = g.edges.map((e) => {
+              if (e.fromNodeId === nodeId && e.fromPin === fromPinName) {
+                return { ...e, fromPin: nextName };
+              }
+              if (e.toNodeId === nodeId && e.toPin === fromPinName) {
+                return { ...e, toPin: nextName };
+              }
+              return e;
+            });
+          }
+          return {
+            ...g,
+            edges: nextEdges,
+            nodes: g.nodes.map((node) => {
+              if (node.id !== nodeId) {
+                return node;
+              }
+              return {
+                ...node,
+                inputs: (node.inputs ?? []).map((p) => {
+                  if (p.type === "exec" || p.name !== fromPinName) {
+                    return p;
+                  }
+                  return field === "name" ? { ...p, name: nextName } : { ...p, type: trimmed };
+                }),
+              };
+            }),
+          };
+        })
+      );
+    },
+    [selectedNodeId]
+  );
 
   const onOutputPinClick = (nodeId: string, pinName: string, cursor?: PendingCursor) => {
     setConnectionHint(null);
@@ -1711,7 +2606,7 @@ const EditorApp = () => {
     }
     const rect = canvasRef.current.getBoundingClientRect();
     const centerWorldX = node.x + nodeWidth / 2;
-    const centerWorldY = node.y + getNodeHeight(node) / 2;
+    const centerWorldY = node.y + getNodeHeight(node, nodeLayoutMaps) / 2;
     setSelectedNodeId(nodeId);
     setSelectedNodeIds([nodeId]);
     setSelectedEdgeId(null);
@@ -1723,7 +2618,27 @@ const EditorApp = () => {
       x: rect.width / 2 - centerWorldX * prev.scale,
       y: rect.height / 2 - centerWorldY * prev.scale,
     }));
-  }, []);
+  }, [nodeLayoutMaps]);
+
+  const onExplorerDoubleClickDispatcher = useCallback(
+    (dispatcherId: string) => {
+      const d = latestDocRef.current.dispatchers.find((x) => x.id === dispatcherId);
+      const entry = d ? findDispatcherEntryNode(d.graph) : null;
+      setEditTarget({ kind: "dispatcher", id: dispatcherId });
+      setGraphExplorerActive(true);
+      setSelectedVariableIndex(null);
+      setSelectedEdgeId(null);
+      window.setTimeout(() => {
+        if (entry) {
+          selectNodeAndCenterInViewport(entry.id);
+        } else {
+          setSelectedNodeId(null);
+          setSelectedNodeIds([]);
+        }
+      }, 0);
+    },
+    [selectNodeAndCenterInViewport]
+  );
 
   const onExplorerDoubleClickLifecycleHook = useCallback(
     (hook: string) => {
@@ -2008,7 +2923,7 @@ const EditorApp = () => {
     if (nodeToCenter && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       const centerWorldX = nodeToCenter.x + nodeWidth / 2;
-      const centerWorldY = nodeToCenter.y + getNodeHeight(nodeToCenter) / 2;
+      const centerWorldY = nodeToCenter.y + getNodeHeight(nodeToCenter, nodeLayoutMaps) / 2;
       const targetX = rect.width / 2 - centerWorldX * viewport.scale;
       const targetY = rect.height / 2 - centerWorldY * viewport.scale;
       setViewport((prev) => ({ ...prev, x: targetX, y: targetY }));
@@ -2064,7 +2979,17 @@ const EditorApp = () => {
     }
     const dx = Math.max(80, Math.abs(x2 - x1) * 0.5);
     return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-  }, [pending, pendingCursor, hoveredInputPin, selectedLookup, viewport.scale, viewport.x, viewport.y, drag]);
+  }, [
+    pending,
+    pendingCursor,
+    hoveredInputPin,
+    selectedLookup,
+    viewport.scale,
+    viewport.x,
+    viewport.y,
+    drag,
+    nodeLayoutMaps,
+  ]);
 
   const issueNodeIds = useMemo(() => {
     const set = new Set<string>();
@@ -2115,9 +3040,16 @@ const EditorApp = () => {
           lifecycleEmptyHint={lifecycleEmptyHint}
           functionGraphs={functionGraphList}
           activeFunctionId={editTarget.kind === "function" ? editTarget.id : null}
-          onBackToEventGraph={editTarget.kind === "function" ? onBackToEventGraph : undefined}
+          activeDispatcherId={editTarget.kind === "dispatcher" ? editTarget.id : null}
+          onBackToEventGraph={subgraphOpen ? onBackToEventGraph : undefined}
           onSelectFunctionId={onExplorerSelectFunctionId}
           onAddFunction={onExplorerAddFunction}
+          dispatcherGraphs={dispatcherGraphList}
+          onSelectDispatcherId={onExplorerSelectDispatcherId}
+          onAddDispatcher={onExplorerAddDispatcher}
+          onRenameDispatcher={onExplorerRenameDispatcher}
+          onDeleteDispatcher={onExplorerDeleteDispatcher}
+          onDispatcherDoubleClick={onExplorerDoubleClickDispatcher}
           variables={activeGraph.variables}
           selectedVariableIndex={selectedVariableIndex}
           onSelectLifecycleHook={onExplorerSelectLifecycleHook}
@@ -2216,6 +3148,186 @@ const EditorApp = () => {
                     />
                   </Form.Item>
                 ) : null}
+                {selectedNode.template === TEMPLATE_BROADCAST_DISPATCHER ? (
+                  <Form.Item label={tr("broadcastDispatcherTargetLabel")}>
+                    <Select
+                      allowClear
+                      placeholder={tr("broadcastDispatcherTargetPlaceholder")}
+                      value={selectedNode.values?.[NODE_VALUE_DISPATCHER_ID] || undefined}
+                      options={doc.dispatchers.map((d) => ({
+                        label: `${d.name} (${d.id})`,
+                        value: d.id,
+                      }))}
+                      onChange={(v) => {
+                        skipPushHistoryRef.current = true;
+                        setDoc((prev) =>
+                          mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+                            ...g,
+                            nodes: g.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) {
+                                return n;
+                              }
+                              const values = { ...(n.values ?? {}) };
+                              if (v === null || v === undefined || v === "") {
+                                delete values[NODE_VALUE_DISPATCHER_ID];
+                              } else {
+                                values[NODE_VALUE_DISPATCHER_ID] = String(v);
+                              }
+                              return {
+                                ...n,
+                                values: Object.keys(values).length > 0 ? values : undefined,
+                              };
+                            }),
+                          }))
+                        );
+                      }}
+                    />
+                  </Form.Item>
+                ) : null}
+                {selectedNode.template === TEMPLATE_BIND_DISPATCHER_LISTENER ? (
+                  <>
+                    <Form.Item label={tr("broadcastDispatcherTargetLabel")}>
+                      <Select
+                        allowClear
+                        placeholder={tr("broadcastDispatcherTargetPlaceholder")}
+                        value={selectedNode.values?.[NODE_VALUE_DISPATCHER_ID] || undefined}
+                        options={doc.dispatchers.map((d) => ({
+                          label: `${d.name} (${d.id})`,
+                          value: d.id,
+                        }))}
+                        onChange={(v) => {
+                          skipPushHistoryRef.current = true;
+                          setDoc((prev) =>
+                            mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+                              ...g,
+                              nodes: g.nodes.map((n) => {
+                                if (n.id !== selectedNode.id) {
+                                  return n;
+                                }
+                                const values = { ...(n.values ?? {}) };
+                                if (v === null || v === undefined || v === "") {
+                                  delete values[NODE_VALUE_DISPATCHER_ID];
+                                } else {
+                                  values[NODE_VALUE_DISPATCHER_ID] = String(v);
+                                }
+                                return {
+                                  ...n,
+                                  values: Object.keys(values).length > 0 ? values : undefined,
+                                };
+                              }),
+                            }))
+                          );
+                        }}
+                      />
+                    </Form.Item>
+                    <Form.Item label={tr("invokeFunctionTargetLabel")}>
+                      <Select
+                        allowClear
+                        placeholder={tr("invokeFunctionTargetPlaceholder")}
+                        value={selectedNode.values?.[NODE_VALUE_FUNCTION_ID] || undefined}
+                        options={doc.functions.map((fn) => ({
+                          label: `${fn.name} (${fn.id})`,
+                          value: fn.id,
+                        }))}
+                        onChange={(v) => {
+                          skipPushHistoryRef.current = true;
+                          setDoc((prev) =>
+                            mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+                              ...g,
+                              nodes: g.nodes.map((n) => {
+                                if (n.id !== selectedNode.id) {
+                                  return n;
+                                }
+                                const values = { ...(n.values ?? {}) };
+                                if (v === null || v === undefined || v === "") {
+                                  delete values[NODE_VALUE_FUNCTION_ID];
+                                } else {
+                                  values[NODE_VALUE_FUNCTION_ID] = String(v);
+                                }
+                                return {
+                                  ...n,
+                                  values: Object.keys(values).length > 0 ? values : undefined,
+                                };
+                              }),
+                            }))
+                          );
+                        }}
+                      />
+                    </Form.Item>
+                  </>
+                ) : null}
+                {selectedNode.template === TEMPLATE_CLEAR_DISPATCHER_LISTENERS ? (
+                  <Form.Item label={tr("broadcastDispatcherTargetLabel")}>
+                    <Select
+                      allowClear
+                      placeholder={tr("broadcastDispatcherTargetPlaceholder")}
+                      value={selectedNode.values?.[NODE_VALUE_DISPATCHER_ID] || undefined}
+                      options={doc.dispatchers.map((d) => ({
+                        label: `${d.name} (${d.id})`,
+                        value: d.id,
+                      }))}
+                      onChange={(v) => {
+                        skipPushHistoryRef.current = true;
+                        setDoc((prev) =>
+                          mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+                            ...g,
+                            nodes: g.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) {
+                                return n;
+                              }
+                              const values = { ...(n.values ?? {}) };
+                              if (v === null || v === undefined || v === "") {
+                                delete values[NODE_VALUE_DISPATCHER_ID];
+                              } else {
+                                values[NODE_VALUE_DISPATCHER_ID] = String(v);
+                              }
+                              return {
+                                ...n,
+                                values: Object.keys(values).length > 0 ? values : undefined,
+                              };
+                            }),
+                          }))
+                        );
+                      }}
+                    />
+                  </Form.Item>
+                ) : null}
+                {((globalEventEmitTemplate.trim() &&
+                  selectedNode.template === globalEventEmitTemplate.trim()) ||
+                  (globalEventListenTemplate.trim() &&
+                    selectedNode.template === globalEventListenTemplate.trim())) ? (
+                  <Form.Item label={tr("globalEventChannelLabel")}>
+                    <Select
+                      allowClear
+                      placeholder={tr("globalEventChannelPlaceholder")}
+                      value={selectedNode.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] || undefined}
+                      options={globalEventChannels.map((c) => ({ label: c.id, value: c.id }))}
+                      onChange={(v) => {
+                        skipPushHistoryRef.current = true;
+                        setDoc((prev) =>
+                          mapDocAtTarget(prev, editTargetRef.current, (g) => ({
+                            ...g,
+                            nodes: g.nodes.map((n) => {
+                              if (n.id !== selectedNode.id) {
+                                return n;
+                              }
+                              const values = { ...(n.values ?? {}) };
+                              if (v === null || v === undefined || v === "") {
+                                delete values[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID];
+                              } else {
+                                values[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] = String(v);
+                              }
+                              return {
+                                ...n,
+                                values: Object.keys(values).length > 0 ? values : undefined,
+                              };
+                            }),
+                          }))
+                        );
+                      }}
+                    />
+                  </Form.Item>
+                ) : null}
                 <Form.Item
                   label={
                     <div className="bp-inspector-section-header">
@@ -2227,22 +3339,82 @@ const EditorApp = () => {
                   }
                 >
                   {!collapsedInspectorPins.inputs ? (
-                    <div className="bp-pin-grid">
-                      <div className="bp-pin-grid-head">Name</div>
-                      <div className="bp-pin-grid-head">Type</div>
-                      <div className="bp-pin-grid-head">Default Value</div>
-                      {selectedNode.inputs.length === 0 ? (
-                        <Typography.Text type="secondary">No input pins.</Typography.Text>
-                      ) : (
-                        selectedNode.inputs.map((pin) => (
-                          <React.Fragment key={`${selectedNode.id}-inspector-input-${pin.name}`}>
-                            <Input value={pin.name} readOnly />
-                            <Input value={pin.type} readOnly />
-                            {renderDefaultValueEditor(selectedNode.id, pin)}
-                          </React.Fragment>
-                        ))
-                      )}
-                    </div>
+                    isFunctionReturnSignatureEdit ? (
+                      <div className="bp-pin-grid bp-pin-grid-outputs bp-pin-grid-dispatcher-sig">
+                        <div className="bp-pin-grid-head">Name</div>
+                        <div className="bp-pin-grid-head">Type</div>
+                        <div className="bp-pin-grid-head" aria-hidden />
+                        {selectedNode.inputs.length === 0 ? (
+                          <Typography.Text type="secondary" style={{ gridColumn: "1 / -1" }}>
+                            No input pins.
+                          </Typography.Text>
+                        ) : (
+                          selectedNode.inputs.map((pin) =>
+                            pin.type === "exec" ? (
+                              <React.Fragment key={`${selectedNode.id}-inspector-input-${pin.name}`}>
+                                <Input value={pin.name} readOnly />
+                                <Input value={pin.type} readOnly />
+                                <span />
+                              </React.Fragment>
+                            ) : (
+                              <React.Fragment key={`${selectedNode.id}-inspector-fret-${pin.name}`}>
+                                <Input
+                                  key={`fri-${selectedNode.id}-${pin.name}`}
+                                  defaultValue={pin.name}
+                                  onFocus={() => {
+                                    inspectorEditingRef.current = true;
+                                  }}
+                                  onBlur={(e) => {
+                                    setFunctionReturnPayloadInputField(pin.name, "name", e.target.value);
+                                    commitInspectorHistoryIfEnded();
+                                  }}
+                                />
+                                <Input
+                                  key={`frit-${selectedNode.id}-${pin.name}-${pin.type}`}
+                                  defaultValue={pin.type}
+                                  onFocus={() => {
+                                    inspectorEditingRef.current = true;
+                                  }}
+                                  onBlur={(e) => {
+                                    setFunctionReturnPayloadInputField(pin.name, "type", e.target.value);
+                                    commitInspectorHistoryIfEnded();
+                                  }}
+                                />
+                                <Button
+                                  size="small"
+                                  danger
+                                  onClick={() => removeFunctionReturnPayloadInput(pin.name)}
+                                >
+                                  {tr("functionReturnRemovePayloadPin")}
+                                </Button>
+                              </React.Fragment>
+                            )
+                          )
+                        )}
+                        <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                          <Button size="small" type="dashed" onClick={addFunctionReturnPayloadInput}>
+                            {tr("functionReturnAddPayloadPin")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bp-pin-grid">
+                        <div className="bp-pin-grid-head">Name</div>
+                        <div className="bp-pin-grid-head">Type</div>
+                        <div className="bp-pin-grid-head">Default Value</div>
+                        {selectedNode.inputs.length === 0 ? (
+                          <Typography.Text type="secondary">No input pins.</Typography.Text>
+                        ) : (
+                          selectedNode.inputs.map((pin) => (
+                            <React.Fragment key={`${selectedNode.id}-inspector-input-${pin.name}`}>
+                              <Input value={pin.name} readOnly />
+                              <Input value={pin.type} readOnly />
+                              {renderDefaultValueEditor(selectedNode.id, pin)}
+                            </React.Fragment>
+                          ))
+                        )}
+                      </div>
+                    )
                   ) : null}
                 </Form.Item>
                 <Form.Item
@@ -2256,22 +3428,140 @@ const EditorApp = () => {
                   }
                 >
                   {!collapsedInspectorPins.outputs ? (
-                    <div className="bp-pin-grid bp-pin-grid-outputs">
-                      <div className="bp-pin-grid-head">Name</div>
-                      <div className="bp-pin-grid-head">Type</div>
-                      {selectedNode.outputs.length === 0 ? (
-                        <Typography.Text type="secondary" style={{ gridColumn: "1 / -1" }}>
-                          No output pins.
-                        </Typography.Text>
-                      ) : (
-                        selectedNode.outputs.map((pin) => (
-                          <React.Fragment key={`${selectedNode.id}-inspector-output-${pin.name}`}>
-                            <Input value={pin.name} readOnly />
-                            <Input value={pin.type} readOnly />
-                          </React.Fragment>
-                        ))
-                      )}
-                    </div>
+                    isDispatcherEntrySignatureEdit ? (
+                      <div className="bp-pin-grid bp-pin-grid-outputs bp-pin-grid-dispatcher-sig">
+                        <div className="bp-pin-grid-head">Name</div>
+                        <div className="bp-pin-grid-head">Type</div>
+                        <div className="bp-pin-grid-head" aria-hidden />
+                        {selectedNode.outputs.length === 0 ? (
+                          <Typography.Text type="secondary" style={{ gridColumn: "1 / -1" }}>
+                            No output pins.
+                          </Typography.Text>
+                        ) : (
+                          selectedNode.outputs.map((pin) =>
+                            pin.type === "exec" ? (
+                              <React.Fragment key={`${selectedNode.id}-inspector-output-${pin.name}`}>
+                                <Input value={pin.name} readOnly />
+                                <Input value={pin.type} readOnly />
+                                <span />
+                              </React.Fragment>
+                            ) : (
+                              <React.Fragment key={`${selectedNode.id}-inspector-sig-${pin.name}`}>
+                                <Input
+                                  key={`dn-${selectedNode.id}-${pin.name}`}
+                                  defaultValue={pin.name}
+                                  onFocus={() => {
+                                    inspectorEditingRef.current = true;
+                                  }}
+                                  onBlur={(e) => {
+                                    setDispatcherEntryPayloadPinField(pin.name, "name", e.target.value);
+                                    commitInspectorHistoryIfEnded();
+                                  }}
+                                />
+                                <Input
+                                  key={`dt-${selectedNode.id}-${pin.name}-${pin.type}`}
+                                  defaultValue={pin.type}
+                                  onFocus={() => {
+                                    inspectorEditingRef.current = true;
+                                  }}
+                                  onBlur={(e) => {
+                                    setDispatcherEntryPayloadPinField(pin.name, "type", e.target.value);
+                                    commitInspectorHistoryIfEnded();
+                                  }}
+                                />
+                                <Button
+                                  size="small"
+                                  danger
+                                  onClick={() => removeDispatcherEntryPayloadOutput(pin.name)}
+                                >
+                                  {tr("dispatcherEntryRemovePayloadPin")}
+                                </Button>
+                              </React.Fragment>
+                            )
+                          )
+                        )}
+                        <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                          <Button size="small" type="dashed" onClick={addDispatcherEntryPayloadOutput}>
+                            {tr("dispatcherEntryAddPayloadPin")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : isFunctionEntrySignatureEdit ? (
+                      <div className="bp-pin-grid bp-pin-grid-outputs bp-pin-grid-dispatcher-sig">
+                        <div className="bp-pin-grid-head">Name</div>
+                        <div className="bp-pin-grid-head">Type</div>
+                        <div className="bp-pin-grid-head" aria-hidden />
+                        {selectedNode.outputs.length === 0 ? (
+                          <Typography.Text type="secondary" style={{ gridColumn: "1 / -1" }}>
+                            No output pins.
+                          </Typography.Text>
+                        ) : (
+                          selectedNode.outputs.map((pin) =>
+                            pin.type === "exec" ? (
+                              <React.Fragment key={`${selectedNode.id}-inspector-output-${pin.name}`}>
+                                <Input value={pin.name} readOnly />
+                                <Input value={pin.type} readOnly />
+                                <span />
+                              </React.Fragment>
+                            ) : (
+                              <React.Fragment key={`${selectedNode.id}-inspector-fentry-${pin.name}`}>
+                                <Input
+                                  key={`fen-${selectedNode.id}-${pin.name}`}
+                                  defaultValue={pin.name}
+                                  onFocus={() => {
+                                    inspectorEditingRef.current = true;
+                                  }}
+                                  onBlur={(e) => {
+                                    setFunctionEntryPayloadPinField(pin.name, "name", e.target.value);
+                                    commitInspectorHistoryIfEnded();
+                                  }}
+                                />
+                                <Input
+                                  key={`fet-${selectedNode.id}-${pin.name}-${pin.type}`}
+                                  defaultValue={pin.type}
+                                  onFocus={() => {
+                                    inspectorEditingRef.current = true;
+                                  }}
+                                  onBlur={(e) => {
+                                    setFunctionEntryPayloadPinField(pin.name, "type", e.target.value);
+                                    commitInspectorHistoryIfEnded();
+                                  }}
+                                />
+                                <Button
+                                  size="small"
+                                  danger
+                                  onClick={() => removeFunctionEntryPayloadOutput(pin.name)}
+                                >
+                                  {tr("functionEntryRemovePayloadPin")}
+                                </Button>
+                              </React.Fragment>
+                            )
+                          )
+                        )}
+                        <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                          <Button size="small" type="dashed" onClick={addFunctionEntryPayloadOutput}>
+                            {tr("functionEntryAddPayloadPin")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bp-pin-grid bp-pin-grid-outputs">
+                        <div className="bp-pin-grid-head">Name</div>
+                        <div className="bp-pin-grid-head">Type</div>
+                        {selectedNode.outputs.length === 0 ? (
+                          <Typography.Text type="secondary" style={{ gridColumn: "1 / -1" }}>
+                            No output pins.
+                          </Typography.Text>
+                        ) : (
+                          selectedNode.outputs.map((pin) => (
+                            <React.Fragment key={`${selectedNode.id}-inspector-output-${pin.name}`}>
+                              <Input value={pin.name} readOnly />
+                              <Input value={pin.type} readOnly />
+                            </React.Fragment>
+                          ))
+                        )}
+                      </div>
+                    )
                   ) : null}
                 </Form.Item>
               </Form>
@@ -2337,6 +3627,13 @@ const EditorApp = () => {
                     })}
                   </Typography.Text>
                 ) : null}
+                {editTarget.kind === "dispatcher" ? (
+                  <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                    {tr("inspectorEditingDispatcher", {
+                      name: doc.dispatchers.find((d) => d.id === editTarget.id)?.name ?? editTarget.id,
+                    })}
+                  </Typography.Text>
+                ) : null}
                 <div className="bp-inspector-inherits">
                   <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
                     {tr("inheritsLabel")}
@@ -2346,11 +3643,9 @@ const EditorApp = () => {
                     allowClear
                     placeholder={tr("inheritsPlaceholder")}
                     value={doc.inherits}
-                    disabled={editTarget.kind === "function"}
-                    open={editTarget.kind === "function" ? undefined : inheritsSelectOpen}
-                    onDropdownVisibleChange={
-                      editTarget.kind === "function" ? undefined : handleInheritsDropdownVisibleChange
-                    }
+                    disabled={subgraphOpen}
+                    open={subgraphOpen ? undefined : inheritsSelectOpen}
+                    onDropdownVisibleChange={subgraphOpen ? undefined : handleInheritsDropdownVisibleChange}
                     options={baseClasses.map((b) => ({ label: b.name, value: b.name }))}
                     onChange={handleInheritsSelectChange}
                   />
@@ -2391,6 +3686,32 @@ const EditorApp = () => {
           className={`bp-canvas ${pan ? "bp-canvas-panning" : "bp-canvas-idle"} ${drag ? "bp-canvas-dragging" : ""
             }`}
           ref={canvasRef}
+          onDragOverCapture={(e) => {
+            if (![...e.dataTransfer.types].includes("application/json")) {
+              return;
+            }
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+          }}
+          onDropCapture={(e) => {
+            const raw = e.dataTransfer.getData("application/json");
+            if (!raw) {
+              return;
+            }
+            let parsed: { kind?: string; functionId?: string };
+            try {
+              parsed = JSON.parse(raw) as { kind?: string; functionId?: string };
+            } catch {
+              return;
+            }
+            if (parsed.kind !== BP_DND_KIND_INVOKE_FUNCTION || typeof parsed.functionId !== "string") {
+              return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            const world = clientToWorld(e.clientX, e.clientY);
+            addInvokeFunctionNodeAtWorld(parsed.functionId, world);
+          }}
           onMouseDown={(e) => {
             if (drag || marquee) {
               return;
@@ -2716,10 +4037,24 @@ const EditorApp = () => {
           {activeGraph.nodes.map((node) => {
             const isConfiguredLifecycle =
               editTarget.kind === "main" && nodeTreeState.configuredLifecycleNodeIds.has(node.id);
-            const lifecycleBlue = isConfiguredLifecycle;
-            const illegalTree = !isConfiguredLifecycle && nodeTreeState.illegalNodes.has(node.id);
+            const isGlobalListenVisual =
+              editTarget.kind === "main" && nodeTreeState.globalEventListenNodeIds.has(node.id);
+            const isDispatcherEntryVisual =
+              editTarget.kind === "dispatcher" && node.template === TEMPLATE_DISPATCHER_ENTRY;
+            const lifecycleBlue =
+              isConfiguredLifecycle || isDispatcherEntryVisual || isGlobalListenVisual;
+            const illegalTree =
+              !isConfiguredLifecycle &&
+              !isDispatcherEntryVisual &&
+              !isGlobalListenVisual &&
+              nodeTreeState.illegalNodes.has(node.id);
             const legalGreen =
-              !isConfiguredLifecycle && !illegalTree && nodeTreeState.legalNodes.has(node.id);
+              !isConfiguredLifecycle &&
+              !isDispatcherEntryVisual &&
+              !isGlobalListenVisual &&
+              !illegalTree &&
+              nodeTreeState.legalNodes.has(node.id);
+            const canvasTargetSubtitle = getNodeCanvasTargetSubtitle(node);
             return (
             <Card
               key={node.id}
@@ -2742,7 +4077,14 @@ const EditorApp = () => {
               }}
               title={
                 <div className="bp-node-title-row">
-                  <span className="bp-node-title-text">{node.title}</span>
+                  <div className="bp-node-title-stack">
+                    <span className="bp-node-title-text">{node.title}</span>
+                    {canvasTargetSubtitle ? (
+                      <span className="bp-node-title-target" title={canvasTargetSubtitle.title}>
+                        {canvasTargetSubtitle.text}
+                      </span>
+                    ) : null}
+                  </div>
                   <span className="bp-node-title-index">{nodeTreeState.numberById.get(node.id) ?? "-"}</span>
                 </div>
               }
@@ -3021,6 +4363,31 @@ const EditorApp = () => {
           onPressEnter={() => applyFunctionRename()}
           placeholder={tr("functionRenamePlaceholder")}
         />
+      </Modal>
+      <Modal
+        title={tr("dispatcherRenameModalTitle")}
+        open={dispatcherRenameModal !== null}
+        onOk={applyDispatcherRename}
+        onCancel={() => setDispatcherRenameModal(null)}
+        okText={tr("functionRenameOk")}
+        cancelText={tr("functionCancel")}
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Input
+            value={dispatcherRenameDraft}
+            onChange={(e) => setDispatcherRenameDraft(e.target.value)}
+            onPressEnter={() => applyDispatcherRename()}
+            placeholder={tr("dispatcherRenamePlaceholder")}
+          />
+          <Input
+            value={dispatcherRenameIdDraft}
+            onChange={(e) => setDispatcherRenameIdDraft(e.target.value)}
+            onPressEnter={() => applyDispatcherRename()}
+            placeholder={tr("dispatcherTechnicalIdPlaceholder")}
+            addonBefore={tr("dispatcherTechnicalIdLabel")}
+          />
+        </Space>
       </Modal>
     </App>
   );

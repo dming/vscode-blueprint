@@ -1,4 +1,4 @@
-import { App, Button, Dropdown, Typography } from "antd";
+import { Button, Dropdown, Typography } from "antd";
 import React, { useState } from "react";
 import type { UiTextKey } from "./ui-text";
 
@@ -31,12 +31,20 @@ export type MyBlueprintPanelProps = {
   functionGraphs: GraphListEntry[];
   /** Currently open function graph id, if any. */
   activeFunctionId: string | null;
+  /** Currently open dispatcher graph id, if any. */
+  activeDispatcherId: string | null;
   /** When set (typically while a function graph is open), show a return control in the explorer. */
   onBackToEventGraph?: () => void;
   onSelectFunctionId: (id: string) => void;
   onAddFunction: () => void;
   onRenameFunction: (id: string) => void;
   onDeleteFunction: (id: string) => void;
+  dispatcherGraphs: GraphListEntry[];
+  onSelectDispatcherId: (id: string) => void;
+  onAddDispatcher: () => void;
+  onRenameDispatcher: (id: string) => void;
+  onDeleteDispatcher: (id: string) => void;
+  onDispatcherDoubleClick?: (id: string) => void;
   variables: GraphVariable[];
   selectedVariableIndex: number | null;
   onSelectLifecycleHook: (hook: string) => void;
@@ -59,11 +67,18 @@ export const MyBlueprintPanel: React.FC<MyBlueprintPanelProps> = ({
   addLifecyclePlusTitle,
   functionGraphs,
   activeFunctionId,
+  activeDispatcherId,
   onBackToEventGraph,
   onSelectFunctionId,
   onAddFunction,
   onRenameFunction,
   onDeleteFunction,
+  dispatcherGraphs,
+  onSelectDispatcherId,
+  onAddDispatcher,
+  onRenameDispatcher,
+  onDeleteDispatcher,
+  onDispatcherDoubleClick,
   variables,
   selectedVariableIndex,
   onSelectLifecycleHook,
@@ -73,27 +88,23 @@ export const MyBlueprintPanel: React.FC<MyBlueprintPanelProps> = ({
   onRemoveVariable,
   t,
 }) => {
-  const { message } = App.useApp();
   const [graphsOpen, setGraphsOpen] = useState(true);
   const [eventGraphsOpen, setEventGraphsOpen] = useState(true);
   const [functionsOpen, setFunctionsOpen] = useState(true);
   const [variablesOpen, setVariablesOpen] = useState(true);
   const [dispatchersOpen, setDispatchersOpen] = useState(true);
 
-  const showLater = (key: UiTextKey) => {
-    void message.info(t(key), 2.5);
-  };
-
   const lifecycleRowActive = (hook: string) =>
     lifecycleListActive && graphExplorerActive && hook === selectedLifecycleHook;
   const functionRowActive = (id: string) => graphExplorerActive && id === activeFunctionId;
+  const dispatcherRowActive = (id: string) => graphExplorerActive && id === activeDispatcherId;
 
   return (
     <aside className="bp-explorer" aria-label={t("myBlueprintTitle")}>
       <div className="bp-explorer-header">
         <Typography.Text className="bp-explorer-title">{t("myBlueprintTitle")}</Typography.Text>
       </div>
-      {activeFunctionId && onBackToEventGraph ? (
+      {(activeFunctionId || activeDispatcherId) && onBackToEventGraph ? (
         <div className="bp-explorer-return-bar">
           <Button type="link" size="small" block className="bp-explorer-return-btn" onClick={onBackToEventGraph}>
             {t("backToEventGraph")}
@@ -215,7 +226,16 @@ export const MyBlueprintPanel: React.FC<MyBlueprintPanelProps> = ({
                 {functionGraphs.map((g) => (
                   <div
                     key={g.id}
-                    className={`bp-explorer-item-row ${functionRowActive(g.id) ? "bp-explorer-item-row-active" : ""}`}
+                    className={`bp-explorer-item-row bp-explorer-fn-drag-row ${functionRowActive(g.id) ? "bp-explorer-item-row-active" : ""}`}
+                    draggable
+                    title={t("functionRowDragInvokeHint")}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(
+                        "application/json",
+                        JSON.stringify({ kind: "invoke-function", functionId: g.id })
+                      );
+                      e.dataTransfer.effectAllowed = "copy";
+                    }}
                   >
                     <button
                       type="button"
@@ -341,14 +361,68 @@ export const MyBlueprintPanel: React.FC<MyBlueprintPanelProps> = ({
               size="small"
               className="bp-explorer-add"
               aria-label={t("myBlueprintAddDispatcherAria")}
-              title={t("myBlueprintDispatchersLater")}
-              onClick={() => showLater("myBlueprintDispatchersLater")}
+              title={t("myBlueprintAddDispatcherAria")}
+              onClick={onAddDispatcher}
             >
               +
             </Button>
           </div>
           {dispatchersOpen ? (
-            <div className="bp-explorer-muted bp-explorer-padding">{t("myBlueprintEmptyDispatchers")}</div>
+            dispatcherGraphs.length === 0 ? (
+              <div className="bp-explorer-muted bp-explorer-padding">{t("myBlueprintEmptyDispatchers")}</div>
+            ) : (
+              <div className="bp-explorer-tree" role="group">
+                {dispatcherGraphs.map((g) => (
+                  <div
+                    key={g.id}
+                    className={`bp-explorer-item-row ${dispatcherRowActive(g.id) ? "bp-explorer-item-row-active" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      role="treeitem"
+                      className="bp-explorer-item bp-explorer-item-grow"
+                      onClick={() => onSelectDispatcherId(g.id)}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onDispatcherDoubleClick?.(g.id);
+                      }}
+                    >
+                      <span className="bp-explorer-item-label" title={g.id}>
+                        {g.name || g.id}
+                      </span>
+                    </button>
+                    <Dropdown
+                      menu={{
+                        items: [
+                          {
+                            key: "rename",
+                            label: t("functionContextRename"),
+                            onClick: () => onRenameDispatcher(g.id),
+                          },
+                          {
+                            key: "delete",
+                            label: t("functionContextDelete"),
+                            danger: true,
+                            onClick: () => onDeleteDispatcher(g.id),
+                          },
+                        ],
+                      }}
+                      trigger={["click"]}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        className="bp-explorer-fn-menu"
+                        aria-label={t("functionContextMenuAria")}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        ⋯
+                      </Button>
+                    </Dropdown>
+                  </div>
+                ))}
+              </div>
+            )
           ) : null}
         </section>
       </div>

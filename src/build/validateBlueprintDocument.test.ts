@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { validateBlueprintDocument } from "./validateBlueprintDocument";
+import {
+  TEMPLATE_FUNCTION_ENTRY,
+  TEMPLATE_FUNCTION_RETURN,
+} from "../blueprint/documentModel";
+import { validateBlueprintDocument, type ValidateBlueprintOptions } from "./validateBlueprintDocument";
 
 describe("validateBlueprintDocument", () => {
   it("does not emit multi-root warning (isRoot is ignored by validation)", () => {
@@ -176,6 +180,45 @@ describe("validateBlueprintDocument", () => {
     expect(dup.some((i) => i.level === "error" && i.message.includes("Duplicate function id"))).toBe(true);
   });
 
+  it("errors when Function Entry has duplicate payload output pin names", () => {
+    const issues = validateBlueprintDocument(
+      {
+        graph: { nodes: [], edges: [] },
+        functions: [
+          {
+            id: "f1",
+            name: "F",
+            nodes: [
+              {
+                id: "ent",
+                template: TEMPLATE_FUNCTION_ENTRY,
+                inputs: [],
+                outputs: [
+                  { name: "exec", type: "exec" },
+                  { name: "x", type: "number" },
+                  { name: "x", type: "string" },
+                ],
+              },
+              {
+                id: "ret",
+                template: TEMPLATE_FUNCTION_RETURN,
+                inputs: [{ name: "exec", type: "exec" }],
+                outputs: [],
+              },
+            ],
+            edges: [],
+            variables: [],
+          },
+        ],
+        dispatchers: [],
+      },
+      "t.bp.json"
+    );
+    expect(
+      issues.some((i) => i.level === "error" && i.message.includes("Function Entry has duplicate payload"))
+    ).toBe(true);
+  });
+
   it("errors when invoke node references unknown function", () => {
     const issues = validateBlueprintDocument(
       {
@@ -193,9 +236,71 @@ describe("validateBlueprintDocument", () => {
           edges: [],
         },
         functions: [],
+        dispatchers: [],
       },
       "sample/bad-invoke.bp.json"
     );
     expect(issues.some((i) => i.level === "error" && i.message.includes("unknown function"))).toBe(true);
+  });
+
+  const globalOpts: ValidateBlueprintOptions = {
+    globalEventEmitTemplate: "Engine.GlobalEvent.Emit",
+    globalEventListenTemplate: "Engine.GlobalEvent.Listen",
+    globalEventChannels: [{ id: "game.pause", payload: [] }],
+  };
+
+  it("errors when global emit references unknown channel (manifest non-empty)", () => {
+    const issues = validateBlueprintDocument(
+      {
+        graph: {
+          nodes: [
+            {
+              id: "e",
+              template: "Engine.GlobalEvent.Emit",
+              inputs: [{ name: "exec", type: "exec" }],
+              outputs: [{ name: "exec", type: "exec" }],
+              values: { channelId: "unknown.channel" },
+            },
+          ],
+          edges: [],
+        },
+        functions: [],
+        dispatchers: [],
+      },
+      "t.bp.json",
+      globalOpts
+    );
+    expect(issues.some((i) => i.level === "error" && i.message.includes("unknown channel"))).toBe(true);
+  });
+
+  it("errors when global Listen appears on function graph", () => {
+    const issues = validateBlueprintDocument(
+      {
+        graph: { nodes: [], edges: [] },
+        functions: [
+          {
+            id: "f1",
+            name: "F",
+            nodes: [
+              {
+                id: "l",
+                template: "Engine.GlobalEvent.Listen",
+                inputs: [],
+                outputs: [{ name: "exec", type: "exec" }],
+                values: { channelId: "game.pause" },
+              },
+            ],
+            edges: [],
+            variables: [],
+          },
+        ],
+        dispatchers: [],
+      },
+      "t.bp.json",
+      globalOpts
+    );
+    expect(issues.some((i) => i.level === "error" && i.message.includes("only allowed on the main"))).toBe(
+      true
+    );
   });
 });

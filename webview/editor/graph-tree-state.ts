@@ -1,5 +1,7 @@
 import {
+  NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID,
   NODE_VALUE_LIFECYCLE_HOOK,
+  TEMPLATE_DISPATCHER_ENTRY,
   TEMPLATE_EVENT_START,
   TEMPLATE_FUNCTION_ENTRY,
 } from "../../src/blueprint/documentModel";
@@ -20,7 +22,7 @@ export type GraphTreeEdge = {
   toPin: string;
 };
 
-export type GraphTreeMode = "main" | "function";
+export type GraphTreeMode = "main" | "function" | "dispatcher";
 
 export type GraphTreeState = {
   /**
@@ -28,6 +30,8 @@ export type GraphTreeState = {
    * Used for the blue header style (same as the former manual “root” node).
    */
   configuredLifecycleNodeIds: Set<string>;
+  /** Main graph: global event Listen nodes with a valid channel id (blue header). */
+  globalEventListenNodeIds: Set<string>;
   legalNodes: Set<string>;
   illegalNodes: Set<string>;
   numberById: Map<string, number>;
@@ -68,13 +72,49 @@ const isConfiguredLifecycleVisual = (n: GraphTreeNodeInput, allowedLifecycleHook
 
 const isFunctionValidTreeStart = (n: GraphTreeNodeInput): boolean => n.template === TEMPLATE_FUNCTION_ENTRY;
 
+const isDispatcherValidTreeStart = (n: GraphTreeNodeInput): boolean => n.template === TEMPLATE_DISPATCHER_ENTRY;
+
+export type GraphTreeGlobalEventOptions = {
+  listenTemplate: string;
+  /** When empty, any non-empty channel id on the node is accepted. */
+  allowedChannelIds: readonly string[];
+};
+
+const isGlobalListenValidStart = (
+  n: GraphTreeNodeInput,
+  listenTemplate: string,
+  allowedChannelIds: readonly string[]
+): boolean => {
+  if (!listenTemplate || n.template !== listenTemplate) {
+    return false;
+  }
+  const cid = (n.values?.[NODE_VALUE_GLOBAL_EVENT_CHANNEL_ID] ?? "").trim();
+  if (!cid) {
+    return false;
+  }
+  if (allowedChannelIds.length === 0) {
+    return true;
+  }
+  return allowedChannelIds.includes(cid);
+};
+
 const isValidTreeStart = (
   n: GraphTreeNodeInput,
   mode: GraphTreeMode,
-  allowedLifecycleHooks: readonly string[]
+  allowedLifecycleHooks: readonly string[],
+  globalEvent: GraphTreeGlobalEventOptions | null | undefined
 ): boolean => {
   if (mode === "function") {
     return isFunctionValidTreeStart(n);
+  }
+  if (mode === "dispatcher") {
+    return isDispatcherValidTreeStart(n);
+  }
+  if (
+    globalEvent?.listenTemplate &&
+    isGlobalListenValidStart(n, globalEvent.listenTemplate, globalEvent.allowedChannelIds)
+  ) {
+    return true;
   }
   return isMainValidTreeStart(n, allowedLifecycleHooks);
 };
@@ -88,7 +128,8 @@ export const computeNodeTreeState = (
   nodes: GraphTreeNodeInput[],
   edges: GraphTreeEdge[],
   mode: GraphTreeMode,
-  allowedLifecycleHooks: readonly string[]
+  allowedLifecycleHooks: readonly string[],
+  globalEvent?: GraphTreeGlobalEventOptions | null
 ): GraphTreeState => {
   const allNodeIds = nodes.map((n) => n.id);
   const nodeMap = new Map(nodes.map((n) => [n.id, n] as const));
@@ -149,7 +190,8 @@ export const computeNodeTreeState = (
       .sort(sortIds);
     const firstEntry = entryNodes[0];
     const legal =
-      firstEntry !== undefined && isValidTreeStart(nodeMap.get(firstEntry)!, mode, allowedLifecycleHooks);
+      firstEntry !== undefined &&
+      isValidTreeStart(nodeMap.get(firstEntry)!, mode, allowedLifecycleHooks, globalEvent);
     if (legal) {
       for (const id of comp) {
         legalNodes.add(id);
@@ -160,10 +202,17 @@ export const computeNodeTreeState = (
   const illegalNodes = new Set<string>(allNodeIds.filter((id) => !legalNodes.has(id)));
 
   const configuredLifecycleNodeIds = new Set<string>();
+  const globalEventListenNodeIds = new Set<string>();
   if (mode === "main") {
     for (const n of nodes) {
       if (isConfiguredLifecycleVisual(n, allowedLifecycleHooks)) {
         configuredLifecycleNodeIds.add(n.id);
+      }
+      if (
+        globalEvent?.listenTemplate &&
+        isGlobalListenValidStart(n, globalEvent.listenTemplate, globalEvent.allowedChannelIds)
+      ) {
+        globalEventListenNodeIds.add(n.id);
       }
     }
   }
@@ -176,7 +225,8 @@ export const computeNodeTreeState = (
       .sort(sortIds);
     const firstEntry = entryNodes[0];
     const compLegal =
-      firstEntry !== undefined && isValidTreeStart(nodeMap.get(firstEntry)!, mode, allowedLifecycleHooks);
+      firstEntry !== undefined &&
+      isValidTreeStart(nodeMap.get(firstEntry)!, mode, allowedLifecycleHooks, globalEvent);
     if (compLegal && firstEntry !== undefined) {
       numberById.set(firstEntry, nextNumber++);
       const visitQueue = [firstEntry];
@@ -207,6 +257,7 @@ export const computeNodeTreeState = (
 
   return {
     configuredLifecycleNodeIds,
+    globalEventListenNodeIds,
     legalNodes,
     illegalNodes,
     numberById,

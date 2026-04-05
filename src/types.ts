@@ -38,6 +38,15 @@ export type BaseClassDef = {
   lifecycle: LifecycleHookDef[];
 };
 
+/**
+ * Cross-blueprint global event channel (manifest in blueprint.config.json).
+ * Host may extend with more fields later; unknown keys are ignored by the extension.
+ */
+export type GlobalEventChannelDef = {
+  id: string;
+  payload: NodeDefPin[];
+};
+
 // ─── Editor Webview → Extension Host ────────────────────────────────────────
 
 export type EditorToHostMessage =
@@ -59,6 +68,9 @@ export type HostToEditorMessage =
       extensionVersion: string;
       nodeDefs: NodeDef[];
       baseClasses: BaseClassDef[];
+      globalEventChannels: GlobalEventChannelDef[];
+      globalEventEmitTemplate: string;
+      globalEventListenTemplate: string;
       checkExpr: boolean;
       language: "zh" | "en";
       nodeLayout: NodeLayout;
@@ -66,7 +78,14 @@ export type HostToEditorMessage =
       allFiles: string[];
     }
   | { type: "fileChanged"; content: string }
-  | { type: "settingLoaded"; nodeDefs: NodeDef[]; baseClasses: BaseClassDef[] }
+  | {
+      type: "settingLoaded";
+      nodeDefs: NodeDef[];
+      baseClasses: BaseClassDef[];
+      globalEventChannels: GlobalEventChannelDef[];
+      globalEventEmitTemplate: string;
+      globalEventListenTemplate: string;
+    }
   | {
       type: "buildResult";
       success: boolean;
