@@ -7,7 +7,7 @@ import {
   mergeEventStartPinsForLifecycle,
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
-} from "./documentModel";
+} from "../../shared/blueprint/documentModel";
 
 describe("mergeEventStartPinsForLifecycle", () => {
   it("appends hook outputs after template and keeps exec first", () => {

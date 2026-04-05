@@ -4,7 +4,7 @@ import {
   TEMPLATE_DISPATCHER_ENTRY,
   TEMPLATE_EVENT_START,
   TEMPLATE_FUNCTION_ENTRY,
-} from "../../src/blueprint/documentModel";
+} from "../../shared/blueprint/documentModel";
 
 /** Minimal node shape for tree / legality (matches blueprint graph nodes). */
 export type GraphTreeNodeInput = {

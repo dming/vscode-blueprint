@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
-} from "../blueprint/documentModel";
+} from "../../shared/blueprint/documentModel";
 import { validateBlueprintDocument, type ValidateBlueprintOptions } from "./validateBlueprintDocument";
 
 describe("validateBlueprintDocument", () => {

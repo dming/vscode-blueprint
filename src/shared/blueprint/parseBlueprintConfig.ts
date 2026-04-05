@@ -3,7 +3,7 @@
  * Used by the extension webview loader and CLI-style build validation.
  */
 
-import type { GlobalEventChannelDef, NodeDefPin } from "../types";
+import type { GlobalEventChannelDef, NodeDefPin } from "../blueprint-config";
 
 export const DEFAULT_GLOBAL_EVENT_EMIT_TEMPLATE = "Engine.GlobalEvent.Emit";
 export const DEFAULT_GLOBAL_EVENT_LISTEN_TEMPLATE = "Engine.GlobalEvent.Listen";

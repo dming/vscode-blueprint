@@ -9,7 +9,7 @@ import {
   TEMPLATE_BIND_DISPATCHER_LISTENER,
   TEMPLATE_BROADCAST_DISPATCHER,
   TEMPLATE_INVOKE_FUNCTION,
-} from "../blueprint/documentModel";
+} from "../../shared/blueprint/documentModel";
 import { emitTypeScriptFromBlueprint } from "./emitTypeScript";
 
 describe("emitTypeScriptFromBlueprint", () => {

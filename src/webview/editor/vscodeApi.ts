@@ -2,8 +2,8 @@
  * Bridge between the Editor Webview and the VSCode Extension Host.
  * The `acquireVsCodeApi()` function is injected by VSCode into the webview context.
  */
-import type { EditorToHostMessage, HostToEditorMessage } from "../../src/types";
-import { composeLoggers, createConsoleLogger, setLogger, type Logger } from "../shared/misc/logger";
+import type { EditorToHostMessage, HostToEditorMessage } from "../../shared/editor-protocol";
+import { composeLoggers, createConsoleLogger, setLogger, type Logger } from "../../shared/logging/logger";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: EditorToHostMessage): void;

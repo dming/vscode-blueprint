@@ -5,7 +5,7 @@ import {
   TEMPLATE_DISPATCHER_ENTRY,
   TEMPLATE_EVENT_START,
   TEMPLATE_FUNCTION_ENTRY,
-} from "../../src/blueprint/documentModel";
+} from "../../shared/blueprint/documentModel";
 import { computeNodeTreeState, type GraphTreeEdge, type GraphTreeNodeInput } from "./graph-tree-state";
 
 const execEdge = (from: string, to: string): GraphTreeEdge => ({

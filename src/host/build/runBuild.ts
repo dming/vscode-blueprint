@@ -3,7 +3,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { getBlueprintOutputChannel } from "../outputChannel";
 import { TreeEditorProvider } from "../treeEditorProvider";
-import { normalizeBlueprintDocumentValue } from "../blueprint/documentModel";
+import { normalizeBlueprintDocumentValue } from "../../shared/blueprint/documentModel";
 import { compileBlueprintDocument } from "./compileBlueprint";
 import { emitTypeScriptFromBlueprint } from "./emitTypeScript";
 import { loadValidateOptionsForBlueprint, loadEmitOptionsForBlueprint } from "./loadBlueprintConfigForBuild";

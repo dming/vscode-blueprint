@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import { composeLoggers, createConsoleLogger, setLogger } from "../webview/shared/misc/logger";
+import { composeLoggers, createConsoleLogger, setLogger } from "../shared/logging/logger";
 import { runBuild } from "./build/runBuild";
 import { createLogOutputChannelLogger } from "./logChannel";
 import { getBlueprintOutputChannel } from "./outputChannel";

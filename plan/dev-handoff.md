@@ -2,11 +2,11 @@
 
 ## Last done (this pause)
 
-- **Edge endpoints vs viewport (blueprint editor webview)** — `webview/editor/main.tsx`
+- **Edge endpoints vs viewport (blueprint editor webview)** — `src/webview/editor/main.tsx`
   - **Problem:** Pin anchors from `getBoundingClientRect()` during render lag **one frame** behind `viewport` updates, so **edges did not follow nodes while panning/zooming the canvas**.
   - **Fix:** SVG edge paths (`edgePath`, `pendingEdgePath`) use **`getPinAnchorFromGeometry` only** — screen position from `node.x/y`, `viewport`, and layout constants (`NODE_BORDER_TOP_PX`, card head/body, description block, `FIRST_PIN_CENTER_FROM_PINS_TOP_PX`, `PIN_CENTER_STEP_PX`, etc.). Same-frame as node `style`, so pan/zoom stay aligned.
   - **Cleanup:** Removed DOM-only pin measurement (`getPinAnchor`), `pinButtonRefsRef` / `setPinButtonRef`, pin `ref={...}`, and unused `getPinButtonKey`.
-  - **Note:** Static pin/edge alignment relies on geometry matching `webview/editor/style.scss`; if a few pixels drift, tune `getPinCenterYOffsetFromNodeTop` / related constants rather than reintroducing render-time DOM reads for edges.
+  - **Note:** Static pin/edge alignment relies on geometry matching `src/webview/editor/style.scss`; if a few pixels drift, tune `getPinCenterYOffsetFromNodeTop` / related constants rather than reintroducing render-time DOM reads for edges.
 
 - **Earlier in this cycle (still relevant):** pin hover type tooltip + `aria-label`, smoke checklist partial run, CI `verify-local` workflow, etc. (see git history).
 

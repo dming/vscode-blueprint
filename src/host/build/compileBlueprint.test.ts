@@ -6,7 +6,7 @@ import {
   NODE_VALUE_DISPATCHER_ID,
   TEMPLATE_BROADCAST_DISPATCHER,
   TEMPLATE_INVOKE_FUNCTION,
-} from "../blueprint/documentModel";
+} from "../../shared/blueprint/documentModel";
 import { compileBlueprintDocument } from "./compileBlueprint";
 
 describe("compileBlueprintDocument", () => {

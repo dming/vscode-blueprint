@@ -13,10 +13,10 @@ import {
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
   TEMPLATE_INVOKE_FUNCTION,
-} from "../blueprint/documentModel";
-import type { GlobalEventChannelDef } from "../types";
+} from "../../shared/blueprint/documentModel";
+import type { GlobalEventChannelDef } from "../../shared/blueprint-config";
 
-export type { BlueprintVariable } from "../blueprint/documentModel";
+export type { BlueprintVariable } from "../../shared/blueprint/documentModel";
 
 export type BlueprintDocument = Record<string, unknown>;
 

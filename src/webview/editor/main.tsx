@@ -40,8 +40,8 @@ import {
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
   TEMPLATE_INVOKE_FUNCTION,
-} from "../../src/blueprint/documentModel";
-import type { BaseClassDef, GlobalEventChannelDef } from "../../src/types";
+} from "../../shared/blueprint/documentModel";
+import type { BaseClassDef, GlobalEventChannelDef } from "../../shared/blueprint-config";
 import { validateConnectionHintKey } from "./graph-validation";
 import { computeNodeTreeState } from "./graph-tree-state";
 import { MyBlueprintPanel } from "./my-blueprint-panel";

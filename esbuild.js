@@ -3,7 +3,7 @@ const isWatch = process.argv.includes("--watch");
 const isDev = isWatch || process.argv.includes("--dev");
 
 const buildOptions = {
-  entryPoints: ["src/extension.ts"],
+  entryPoints: ["src/host/extension.ts"],
   bundle: true,
   outfile: "dist/extension.js",
   external: ["vscode"],

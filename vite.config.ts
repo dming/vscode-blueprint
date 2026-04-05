@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
-  root: "webview",
+  root: "src/webview",
   base: "./",
   publicDir: path.resolve(__dirname, "public"),
   build: {
@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        editor: path.resolve(__dirname, "webview/editor/index.html"),
+        editor: path.resolve(__dirname, "src/webview/editor/index.html"),
       },
     },
     // dev mode: inline sourcemaps (CSP-safe, no separate .map files)

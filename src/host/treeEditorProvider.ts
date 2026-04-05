@@ -8,16 +8,15 @@ import {
   parseRuntimeGlobalEventTemplates,
   DEFAULT_GLOBAL_EVENT_EMIT_TEMPLATE,
   DEFAULT_GLOBAL_EVENT_LISTEN_TEMPLATE,
-} from "./blueprint/parseBlueprintConfig";
+} from "../shared/blueprint/parseBlueprintConfig";
 import type {
   BaseClassDef,
-  EditorToHostMessage,
   GlobalEventChannelDef,
-  HostToEditorMessage,
   LifecycleHookDef,
   NodeDef,
   NodeDefPin,
-} from "./types";
+} from "../shared/blueprint-config";
+import type { EditorToHostMessage, HostToEditorMessage } from "../shared/editor-protocol";
 
 /**
  * Read the Vite-generated HTML for the editor webview entry,

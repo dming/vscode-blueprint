@@ -1,4 +1,4 @@
-import type { BlueprintDocument, BlueprintEdge, BlueprintGraphBody, BlueprintNode } from "../blueprint/documentModel";
+import type { BlueprintDocument, BlueprintEdge, BlueprintGraphBody, BlueprintNode } from "../../shared/blueprint/documentModel";
 import {
   NODE_VALUE_DISPATCHER_ID,
   NODE_VALUE_FUNCTION_ID,
@@ -11,7 +11,7 @@ import {
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
   TEMPLATE_INVOKE_FUNCTION,
-} from "../blueprint/documentModel";
+} from "../../shared/blueprint/documentModel";
 function sanitizeIdent(raw: string): string {
   const s = raw.replace(/[^a-zA-Z0-9_]/g, "_");
   if (!s) {

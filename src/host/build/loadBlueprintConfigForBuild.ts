@@ -3,7 +3,7 @@ import * as path from "path";
 import {
   parseGlobalEventChannels,
   parseRuntimeGlobalEventTemplates,
-} from "../blueprint/parseBlueprintConfig";
+} from "../../shared/blueprint/parseBlueprintConfig";
 import type { ValidateBlueprintOptions } from "./validateBlueprintDocument";
 
 export function findBlueprintConfigPath(workspaceRoot: string, blueprintFilePath: string): string | null {

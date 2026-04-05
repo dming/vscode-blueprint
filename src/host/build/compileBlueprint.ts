@@ -1,4 +1,4 @@
-import type { BlueprintDocument, BlueprintGraphBody } from "../blueprint/documentModel";
+import type { BlueprintDocument, BlueprintGraphBody } from "../../shared/blueprint/documentModel";
 import {
   NODE_VALUE_DISPATCHER_ID,
   TEMPLATE_BROADCAST_DISPATCHER,
@@ -6,7 +6,7 @@ import {
   TEMPLATE_FUNCTION_ENTRY,
   TEMPLATE_FUNCTION_RETURN,
   TEMPLATE_INVOKE_FUNCTION,
-} from "../blueprint/documentModel";
+} from "../../shared/blueprint/documentModel";
 
 export type InvokeSite = {
   nodeId: string;

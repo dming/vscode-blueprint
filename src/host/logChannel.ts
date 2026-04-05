@@ -1,5 +1,5 @@
 import type * as vscode from "vscode";
-import type { Logger } from "../webview/shared/misc/logger";
+import type { Logger } from "../shared/logging/logger";
 import { formatConsoleArgs } from "./outputChannel";
 
 export function createLogOutputChannelLogger(out: vscode.LogOutputChannel): Logger {
