@@ -137,7 +137,14 @@ export class BluePrintEventBlock extends BluePrintBlock {
     if (parms) {
       event.initData(runtimeDataMgr, parms, runId);
     }
-    const outExec = event.outExecutes?.[execId];
+    // BlueprintRuntime passes execId -1 for the default exec pin; `outExecutes[-1]` is not a valid
+    // array index in JS — use `outExecute` (set in BlueprintEventNode.addPin for the first exec out).
+    const outExec =
+      execId >= 0
+        ? event.outExecutes?.[execId]
+        : execId === -1
+          ? (event.outExecute ?? event.outExecutes?.[0])
+          : (event.outExecutes?.find((p) => p.id === String(execId)) ?? event.outExecutes?.[0]);
     if (!outExec) {
       throw new Error("BluePrintEventBlock.run: missing event output execute pin");
     }

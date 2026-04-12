@@ -2,6 +2,12 @@ import stylistic from "@stylistic/eslint-plugin";
 import tseslint from "typescript-eslint";
 
 export default [
+  {
+    ignores: [
+      "examples/web-runtime/dist/**",
+      "examples/web-runtime/scripts/exportBlueprintConfig.bundle.cjs",
+    ],
+  },
   ...tseslint.configs.recommended,
   {
     files: ["src/**/*.{ts,tsx}"],
@@ -33,6 +39,46 @@ export default [
       /**
        * class 内「相邻方法」之间空行（不含字段与字段之间，避免把属性区拉得过长）
        */
+      "@stylistic/lines-between-class-members": [
+        "error",
+        {
+          enforce: [
+            {
+              blankLine: "always",
+              prev: "method",
+              next: "method",
+            },
+          ],
+        },
+        { exceptAfterSingleLine: false, exceptAfterOverload: true },
+      ],
+    },
+  },
+  {
+    files: ["examples/web-runtime/**/*.ts"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+      },
+    },
+    plugins: {
+      "@stylistic": stylistic,
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+      "@stylistic/padding-line-between-statements": [
+        "error",
+        { blankLine: "always", prev: "function", next: "function" },
+      ],
       "@stylistic/lines-between-class-members": [
         "error",
         {

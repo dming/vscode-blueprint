@@ -717,6 +717,19 @@ export class BlueprintData {
     }
   }
 
+  /**
+   * Re-materialize one host / extends key from {@link _extendsData} after it was merged in late
+   * (e.g. a second {@link initBlueprintCore} pass). Without this, {@link _createExtData} may have
+   * created an empty bucket when the key was missing from `customData` during asset parse.
+   */
+  public rebuildConstDataForExtKey(ext: string): void {
+    if (!Object.prototype.hasOwnProperty.call(this._extendsData, ext)) {
+      return;
+    }
+    delete this.constData[ext];
+    this._createExtData(this._extendsData as Record<string, unknown>, ext, null);
+  }
+
   public static handleCDataTypes(
     cdata: Record<string, unknown>,
     fun: Record<string, unknown>,

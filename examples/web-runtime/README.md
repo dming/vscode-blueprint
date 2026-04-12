@@ -20,6 +20,16 @@ Implementation lives in [`blueprintConfig/manifest.ts`](./blueprintConfig/manife
 
 CI runs `npm run test:blueprint-config-parity` (see root `package.json`) so the manifest and `sample/blueprint.config.json` cannot drift in meaning.
 
+## BattleContext (game + sample blueprint)
+
+[`engine/game/BattleContext.ts`](./engine/game/BattleContext.ts) owns the ECS `World` / `BattleWork` and can load the same editor sample as the page demo via **`BattleContext.loadFromEditorSample()`** (optional `configText` / `documentText` for tests). After load, call **`runMainLifecycle()`** to run the graph’s `onStart()` entry (same as the former inline demo in `main.ts`).
+
+Regression (reads `sample/` from disk, no browser):
+
+```bash
+npm run test:battle-context-sample
+```
+
 ## Commands
 
 - `npm run dev:web-runtime` — dev server (port **5174**).

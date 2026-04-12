@@ -3,14 +3,17 @@ import { registerBaseClass, registerNodeDef } from "./registry";
 
 type LifecyclePin = string | { name: string; type: string };
 
+/** Constructor reference used as a stable key for lifecycle staging (decorator metadata). */
+type DecoratorClass = abstract new (...args: never[]) => object;
+
 export type LifecycleMethodOptions = {
   /** Pin strings such as `"deltaTime:number"` or `{ name, type }`. */
   outputs?: LifecyclePin[];
 };
 
-const lifecycleHooksByCtor = new Map<Function, BlueprintConfigLifecycleHookJson[]>();
+const lifecycleHooksByCtor = new Map<DecoratorClass, BlueprintConfigLifecycleHookJson[]>();
 
-function appendLifecycleHook(ctor: Function, hook: BlueprintConfigLifecycleHookJson): void {
+function appendLifecycleHook(ctor: DecoratorClass, hook: BlueprintConfigLifecycleHookJson): void {
   const list = lifecycleHooksByCtor.get(ctor) ?? [];
   list.push(hook);
   lifecycleHooksByCtor.set(ctor, list);
@@ -22,7 +25,7 @@ function appendLifecycleHook(ctor: Function, hook: BlueprintConfigLifecycleHookJ
  */
 export function Lifecycle(opts?: LifecycleMethodOptions): MethodDecorator {
   return (target: object, propertyKey: string | symbol) => {
-    const ctor = target.constructor as Function;
+    const ctor = target.constructor as DecoratorClass;
     const name = String(propertyKey);
     const outputs = opts?.outputs?.length
       ? opts.outputs.map((p) => (typeof p === "string" ? p : `${p.name}:${p.type}`))
@@ -36,12 +39,12 @@ export function Lifecycle(opts?: LifecycleMethodOptions): MethodDecorator {
  * `className` defaults to the runtime class name (e.g. `Component`).
  */
 export function BlueprintBaseClass(className?: string): ClassDecorator {
-  return (ctor: Function) => {
+  return ((ctor: DecoratorClass) => {
     const key = className ?? ctor.name;
     const lifecycle = [...(lifecycleHooksByCtor.get(ctor) ?? [])];
     lifecycleHooksByCtor.delete(ctor);
     registerBaseClass(key, lifecycle);
-  };
+  }) as ClassDecorator;
 }
 
 /**

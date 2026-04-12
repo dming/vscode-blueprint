@@ -12,7 +12,7 @@ interface BlueprintEventBuiltinHost {
 export function registerBlueprintFunctions() {
     const rf = BlueprintFactory.regFunction.bind(BlueprintFactory);
     rf("web_consoleLog", function (text: unknown) {
-        console.log("[Blueprint]", text);
+        console.warn("[Blueprint]", text);
     });
     rf("equal", function (a: unknown, b: unknown) {
         return a == b;
@@ -54,28 +54,28 @@ export function registerBlueprintFunctions() {
         function (this: BlueprintEventBuiltinHost, eventName: unknown, cb: unknown) {
             this.on(eventName as string, this, cb as (...args: unknown[]) => unknown);
         },
-        true,
+        true
     );
     rf(
         "event_call",
         function (this: BlueprintEventBuiltinHost, eventName: unknown, ...args: unknown[]) {
             this.event(eventName as string, args);
         },
-        true,
+        true
     );
     rf(
         "event_off",
         function (this: BlueprintEventBuiltinHost, eventName: unknown, cb: unknown) {
             this.off(eventName as string, this, cb as (...args: unknown[]) => unknown);
         },
-        true,
+        true
     );
     rf(
         "event_offAll",
         function (this: BlueprintEventBuiltinHost, eventName: unknown, _cb: unknown) {
             this.offAll(eventName as string);
         },
-        true,
+        true
     );
     rf("get", BlueprintStaticFun.getVariable);
     rf("static_get", BlueprintStaticFun.getVariable);

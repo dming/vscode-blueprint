@@ -62,6 +62,20 @@ export class BlueprintUtil {
         }
     }
 
+    /**
+     * After {@link extendsData} keys are merged by {@link initBlueprintCore}, refresh const buckets
+     * for those keys if `bpData` already existed with an older `extendsData` snapshot (web demo:
+     * minimal fixture init, then editor config with `Component` / `Actor`).
+     */
+    public static rebuildConstDataForMergedExtendsKeys(mergedKeys: readonly string[]): void {
+        this.initConstNode();
+        for (const ext of mergedKeys) {
+            if (Object.prototype.hasOwnProperty.call(extendsData, ext)) {
+                this.bpData.rebuildConstDataForExtKey(ext);
+            }
+        }
+    }
+
     public static getClass(ext: string) {
         return this.classMap[ext];
     }

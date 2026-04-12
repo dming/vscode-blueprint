@@ -22,6 +22,7 @@ export function initBlueprintCore(options: InitBlueprintCoreOptions) {
             ? (JSON.parse(options.bpConfigJson) as BlueprintConfigJson)
             : options.bpConfigJson;
 
+    const mergedExtKeys = Object.keys(json);
     for (const key in json) {
         extendsData[key] = json[key];
     }
@@ -53,6 +54,7 @@ export function initBlueprintCore(options: InitBlueprintCoreOptions) {
 
     BlueprintCreateUtil.reg();
     BlueprintUtil.initConstNode();
+    BlueprintUtil.rebuildConstDataForMergedExtendsKeys(mergedExtKeys);
 
     return adapters;
 }

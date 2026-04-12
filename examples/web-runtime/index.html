@@ -28,7 +28,10 @@
     <h1>Blueprint web runtime (minimal)</h1>
     <p>
       Loads <code>sample/runtime-minimal.*.json</code>, then <code>sample/main.bp.json</code> with
-      <code>blueprint.config.json</code>. Open DevTools console for <code>[Blueprint]</code> logs.
+      <code>blueprint.config.json</code>. Open <strong>this page’s</strong> DevTools console (not the
+      VS Code “Output” panel): <code>Debug.Print</code> uses <code>console.log(&quot;[Blueprint]&quot;, …)</code>.
+      If you embed this URL in a VS Code webview, use <em>Developer: Open Webview Developer Tools</em> for that
+      webview’s console.
     </p>
     <button type="button" id="run">Run again</button>
     <pre id="log"></pre>

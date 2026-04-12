@@ -2,23 +2,57 @@
   "baseClasses": {
     "Actor": {
       "lifecycle": [
-        { "name": "onBeginPlay", "outputs": [] },
-        { "name": "onTick", "outputs": ["deltaTime:number"] },
-        { "name": "onEndPlay", "outputs": [] }
+        {
+          "name": "onBeginPlay",
+          "outputs": []
+        },
+        {
+          "name": "onTick",
+          "outputs": [
+            "deltaTime:number"
+          ]
+        },
+        {
+          "name": "onEndPlay",
+          "outputs": []
+        }
       ]
     },
     "Component": {
       "lifecycle": [
-        { "name": "onAwake", "outputs": [] },
-        { "name": "onStart", "outputs": [] },
-        { "name": "onUpdate", "outputs": ["deltaTime:number"] },
-        { "name": "onDestroy", "outputs": [] }
+        {
+          "name": "onAwake",
+          "outputs": []
+        },
+        {
+          "name": "onStart",
+          "outputs": []
+        },
+        {
+          "name": "onUpdate",
+          "outputs": [
+            "deltaTime:number"
+          ]
+        },
+        {
+          "name": "onDestroy",
+          "outputs": []
+        }
       ]
     }
   },
   "globalEventChannels": [
-    { "id": "game.pause", "payload": [] },
-    { "id": "ui.toast", "payload": ["message:string", "severity:number"] }
+    {
+      "id": "game.pause",
+      "payload": []
+    },
+    {
+      "id": "ui.toast",
+      "payload": [
+        "message:string",
+        "severity:number"
+      ]
+    }
   ],
   "runtimeTemplates": {
     "globalEventEmit": "Engine.GlobalEvent.Emit",
@@ -29,15 +63,22 @@
       "name": "Event.Start",
       "title": "Event Start",
       "category": "Event",
-      "outputs": ["exec:exec"],
+      "outputs": [
+        "exec:exec"
+      ],
       "desc": "Blueprint execution entry."
     },
     {
       "name": "Debug.Print",
       "title": "Print",
       "category": "Debug",
-      "inputs": ["exec:exec", "text:string"],
-      "outputs": ["exec:exec"],
+      "inputs": [
+        "exec:exec",
+        "text:string"
+      ],
+      "outputs": [
+        "exec:exec"
+      ],
       "defaults": {
         "text": "Hello from Blueprint sample"
       },
@@ -47,8 +88,13 @@
       "name": "Math.AddInt",
       "title": "Add Int",
       "category": "Math",
-      "inputs": ["a:number", "b:number"],
-      "outputs": ["result:number"],
+      "inputs": [
+        "a:number",
+        "b:number"
+      ],
+      "outputs": [
+        "result:number"
+      ],
       "defaults": {
         "a": 1,
         "b": 2
@@ -59,22 +105,30 @@
       "name": "Flow.FunctionEntry",
       "title": "Function Entry",
       "category": "Flow",
-      "outputs": ["exec:exec"],
+      "outputs": [
+        "exec:exec"
+      ],
       "desc": "Function graph entry; add output pins for parameters (they appear as inputs on Invoke Function nodes)."
     },
     {
       "name": "Flow.FunctionReturn",
       "title": "Return",
       "category": "Flow",
-      "inputs": ["exec:exec"],
+      "inputs": [
+        "exec:exec"
+      ],
       "desc": "Ends the function; add non-exec input pins for return values (they appear as outputs on Invoke Function nodes)."
     },
     {
       "name": "Flow.InvokeFunction",
       "title": "Invoke Function",
       "category": "Flow",
-      "inputs": ["exec:exec"],
-      "outputs": ["exec:exec"],
+      "inputs": [
+        "exec:exec"
+      ],
+      "outputs": [
+        "exec:exec"
+      ],
       "defaults": {
         "functionId": ""
       },
@@ -84,15 +138,21 @@
       "name": "Flow.DispatcherEntry",
       "title": "Dispatcher Entry",
       "category": "Flow",
-      "outputs": ["exec:exec"],
+      "outputs": [
+        "exec:exec"
+      ],
       "desc": "Listener graph entry; add output pins for broadcast payload (same names become Broadcast inputs)."
     },
     {
       "name": "Flow.BroadcastDispatcher",
       "title": "Broadcast Dispatcher",
       "category": "Flow",
-      "inputs": ["exec:exec"],
-      "outputs": ["exec:exec"],
+      "inputs": [
+        "exec:exec"
+      ],
+      "outputs": [
+        "exec:exec"
+      ],
       "defaults": {
         "dispatcherId": ""
       },
@@ -102,8 +162,12 @@
       "name": "Flow.BindDispatcherListener",
       "title": "Bind Dispatcher Listener",
       "category": "Flow",
-      "inputs": ["exec:exec"],
-      "outputs": ["exec:exec"],
+      "inputs": [
+        "exec:exec"
+      ],
+      "outputs": [
+        "exec:exec"
+      ],
       "defaults": {
         "dispatcherId": "",
         "functionId": ""
@@ -114,8 +178,12 @@
       "name": "Flow.ClearDispatcherListeners",
       "title": "Clear Dispatcher Listeners",
       "category": "Flow",
-      "inputs": ["exec:exec"],
-      "outputs": ["exec:exec"],
+      "inputs": [
+        "exec:exec"
+      ],
+      "outputs": [
+        "exec:exec"
+      ],
       "defaults": {
         "dispatcherId": ""
       },
@@ -125,8 +193,12 @@
       "name": "Engine.GlobalEvent.Emit",
       "title": "Emit Global Event",
       "category": "Engine",
-      "inputs": ["exec:exec"],
-      "outputs": ["exec:exec"],
+      "inputs": [
+        "exec:exec"
+      ],
+      "outputs": [
+        "exec:exec"
+      ],
       "defaults": {
         "channelId": ""
       },
@@ -136,7 +208,9 @@
       "name": "Engine.GlobalEvent.Listen",
       "title": "On Global Event",
       "category": "Engine",
-      "outputs": ["exec:exec"],
+      "outputs": [
+        "exec:exec"
+      ],
       "defaults": {
         "channelId": ""
       },
