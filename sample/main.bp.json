@@ -59,8 +59,8 @@
       {
         "id": "node_bgihbj",
         "title": "Print",
-        "x": 377,
-        "y": 430,
+        "x": 422.2222222222222,
+        "y": 437.77777777777777,
         "inputs": [
           {
             "name": "exec",
@@ -105,8 +105,8 @@
         "id": "broadcast_health",
         "title": "Broadcast Dispatcher",
         "template": "Flow.BroadcastDispatcher",
-        "x": 404,
-        "y": 58,
+        "x": 400,
+        "y": 80,
         "inputs": [
           {
             "name": "exec",
@@ -133,8 +133,8 @@
         "title": "onUpdate",
         "template": "Event.Start",
         "description": "Blueprint execution entry.",
-        "x": 67,
-        "y": 462,
+        "x": 80,
+        "y": 440,
         "inputs": [],
         "outputs": [
           {
@@ -200,8 +200,8 @@
         "title": "Invoke Function",
         "template": "Flow.InvokeFunction",
         "description": "Call a user function (set target in Inspector, or drag the function from My Blueprint onto the canvas).",
-        "x": 610.0078395341659,
-        "y": 586.3456963531029,
+        "x": 770,
+        "y": 420,
         "inputs": [
           {
             "name": "exec",

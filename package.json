@@ -120,7 +120,8 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "check:ts-imports": "esbuild scripts/ts-import.ts --bundle --platform=node --format=cjs --packages=external --outfile=scripts/.ts-import.run.cjs && node scripts/.ts-import.run.cjs",
-    "test:all": "npm run test:build-validation && npm run test:editor-regression",
+    "test:blueprint-config-parity": "vitest --root . run examples/web-runtime/blueprintConfig/manifest.parity.test.ts",
+    "test:all": "npm run test:build-validation && npm run test:blueprint-config-parity && npm run test:editor-regression",
     "test:build-validation": "vitest --root . run src/host/build/validateBlueprintDocument.test.ts src/host/build/compileBlueprint.test.ts src/host/build/emitTypeScript.test.ts src/host/build/documentModel.lifecyclePins.test.ts src/runtime/adapter/documentToRuntimeAsset.test.ts",
     "test:graph-state": "vitest run src/webview/editor/graph-tree-state.test.ts",
     "test:editor-regression": "vitest run src/webview/editor/graph-tree-state.test.ts src/webview/editor/graph-validation.test.ts",
@@ -129,6 +130,7 @@
     "dev": "npm run watch:webview",
     "dev:web-runtime": "vite --config examples/web-runtime/vite.config.ts",
     "build:web-runtime": "vite build --config examples/web-runtime/vite.config.ts",
+    "export:blueprint-config": "node node_modules/esbuild/bin/esbuild examples/web-runtime/scripts/exportBlueprintConfig.ts --bundle --platform=node --format=cjs --target=node18 --packages=external --tsconfig=examples/web-runtime/tsconfig.json --outfile=examples/web-runtime/scripts/exportBlueprintConfig.bundle.cjs && node examples/web-runtime/scripts/exportBlueprintConfig.bundle.cjs",
     "package": "vsce package",
     "postinstall": "echo postinstall complete"
   },

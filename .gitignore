@@ -5,3 +5,4 @@ examples/web-runtime/dist/
 .DS_Store
 tsconfig.webview.tsbuildinfo
 scripts/.ts-import.run.cjs
+examples/web-runtime/scripts/exportBlueprintConfig.bundle.cjs

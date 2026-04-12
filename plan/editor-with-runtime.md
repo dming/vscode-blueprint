@@ -68,8 +68,9 @@ Runtime may duplicate **tiny** defensive checks (e.g. missing node id) if needed
 ## Web runtime playground
 
 - **`examples/web-runtime/`**: second Vite app (port **5174**); **`publicDir`** = repo **`sample/`** so `fetch("/main.bp.json")` works.
-- Scripts: **`npm run dev:web-runtime`**, **`npm run build:web-runtime`**.
+- Scripts: **`npm run dev:web-runtime`**, **`npm run build:web-runtime`**, **`npm run export:blueprint-config`** (writes `sample/blueprint.config.json` from `blueprintConfig/manifest.ts` + decorators).
 - Demo flow: minimal fixture JSON, then `blueprint.config.json` + `main.bp.json` → `documentToRuntimeAsset` → `BlueprintResource.parse` → call lifecycle method on generated subclass (e.g. `onStart()`).
+- See [`examples/web-runtime/README.md`](../examples/web-runtime/README.md) for the editor/runtime pairing checklist.
 
 ---
 

@@ -3,6 +3,9 @@ import type { EditorBlueprintConfig } from "../../src/shared/blueprint/parseEdit
 /**
  * Build a trivial host class the runtime can subclass; lifecycle methods are empty stubs
  * that the generated blueprint subclass overrides to run the graph.
+ *
+ * Lifecycle names must match `blueprint.config.json` for the chosen base class
+ * (see `blueprintConfig/manifest.ts` + `npm run export:blueprint-config` → `sample/`).
  */
 export function createHostClassForBlueprint(
   baseName: string,

@@ -2,6 +2,7 @@
 
 ## Last done (this pause)
 
+- **Editor vs runtime workflow docs** — root [`AGENTS.md`](../AGENTS.md): `blueprint.config.json` + `*.bp.json` roles, contract paths, mermaid disk→engine flow, contract-change checklist. [`src/runtime/README.md`](../src/runtime/README.md): “Gap: full graph → BlueprintAssetJson” (options 1–3). [`documentToRuntimeAsset.test.ts`](../src/runtime/adapter/documentToRuntimeAsset.test.ts): MVP failure-path tests (exec cycle, unsupported template, multiple exec from one node).
 - **Strict `tsc` for extension/runtime (`src/**` minus webview)** — broad typing pass so `npx tsc --noEmit -p .` is clean: base node `step`/`next` return `unknown`, `BlueprintNativeCallable` + relaxed finish callbacks, `BlueprintFactory` symbol/`_bp_data` typing, guards on `RuntimeDataManager` / event blocks, typed `BP*` libs and `ExpressParse`, plus many `strictPropertyInitialization` and nullability fixes across `src/runtime/core` and `documentModel` merge helper.
 - **Edge endpoints vs viewport (blueprint editor webview)** — `src/webview/editor/main.tsx`
   - **Problem:** Pin anchors from `getBoundingClientRect()` during render lag **one frame** behind `viewport` updates, so **edges did not follow nodes while panning/zooming the canvas**.
